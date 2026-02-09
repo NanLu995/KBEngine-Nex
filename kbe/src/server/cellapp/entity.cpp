@@ -1261,106 +1261,115 @@ void Entity::onWriteToDB()
 }
 
 //-------------------------------------------------------------------------------------
-bool Entity::bufferOrExeCallback(const char * funcName, PyObject * funcArgs, bool notFoundIsOK)
+bool Entity::bufferOrExeCallback(const char* funcName, PyObject* funcArgs, bool notFoundIsOK)
 {
 	bool canBuffer = _scriptCallbacksBufferCount > 0;
 
 	PyObject* pyCallable = PyObject_GetAttrString(this, const_cast<char*>(funcName));
+	bool hasEntityCallable = (pyCallable != NULL);
 
-	if (pyCallable == NULL)
+	if (!hasEntityCallable)
 	{
 		if (!notFoundIsOK)
 		{
-			ERROR_MSG(fmt::format("{}::bufferOrExeCallback({}): method({}) not found!\n",
+			ERROR_MSG(fmt::format("{}::bufferOrExeCallback({}): method({}) not found on entity!\n",
 				scriptName(), id(), funcName));
 		}
 
-		if (funcArgs)
-			Py_DECREF(funcArgs);
-
 		PyErr_Clear();
-		return false;
 	}
 
-	if (canBuffer)
+	// ---------- entity 自身 ----------
+	if (hasEntityCallable)
 	{
-		BufferedScriptCall* pBufferedScriptCall = new BufferedScriptCall();
-		pBufferedScriptCall->entityPtr = this;
-		pBufferedScriptCall->pyFuncArgs = funcArgs;
-		pBufferedScriptCall->pyCallable = pyCallable;
-		pBufferedScriptCall->funcName = funcName;
-		_scriptCallbacksBuffer.push_back(pBufferedScriptCall);
-		++_scriptCallbacksBufferNum;
-	}
-	else
-	{
-		Py_INCREF(this);
-		PyObject* pyResult = PyObject_CallObject(pyCallable, funcArgs);
-
-		Py_DECREF(pyCallable);
-
-		if (pyResult)
+		if (canBuffer)
 		{
-			// todo: 待测试：这里需要考虑协程的情况
-			AsyncioHelper::submitCoroutine(pyResult);
-			Py_DECREF(pyResult);
+			BufferedScriptCall* pBufferedScriptCall = new BufferedScriptCall();
+			pBufferedScriptCall->entityPtr = this;
+			pBufferedScriptCall->pyFuncArgs = funcArgs;
+			pBufferedScriptCall->pyCallable = pyCallable;
+			pBufferedScriptCall->funcName = funcName;
+			_scriptCallbacksBuffer.push_back(pBufferedScriptCall);
+			++_scriptCallbacksBufferNum;
+
+			return true;
+		}
+		else
+		{
+			Py_INCREF(this);
+
+			PyObject* pyResult = PyObject_CallObject(pyCallable, funcArgs);
+			Py_DECREF(pyCallable);
+
+			if (pyResult)
+			{
+				AsyncioHelper::submitCoroutine(pyResult);
+				Py_DECREF(pyResult);
+			}
+			else
+			{
+				PyErr_PrintEx(0);
+			}
+
+			Py_DECREF(this);
+		}
+	}
+
+	// ---------- 通知组件（无论 entity 是否有方法） ----------
+	ScriptDefModule::COMPONENTDESCRIPTION_MAP& componentDescrs =
+		pScriptModule_->getComponentDescrs();
+
+	ScriptDefModule::COMPONENTDESCRIPTION_MAP::iterator comps_iter =
+		componentDescrs.begin();
+
+	for (; comps_iter != componentDescrs.end(); ++comps_iter)
+	{
+		if (!comps_iter->second->hasCell())
+			continue;
+
+		PyObject* pyCompObj =
+			PyObject_GetAttrString(this, comps_iter->first.c_str());
+
+		if (!pyCompObj)
+		{
+			SCRIPT_ERROR_CHECK();
+			continue;
+		}
+
+		PyObject* pyCompCallable =
+			PyObject_GetAttrString(pyCompObj, const_cast<char*>(funcName));
+
+		if (!pyCompCallable)
+		{
+			PyErr_Clear();
+			Py_DECREF(pyCompObj);
+			continue;
+		}
+
+		PyObject* pyCompResult =
+			PyObject_CallObject(pyCompCallable, funcArgs);
+
+		Py_DECREF(pyCompCallable);
+
+		if (pyCompResult)
+		{
+			AsyncioHelper::submitCoroutine(pyCompResult);
+			Py_DECREF(pyCompResult);
 		}
 		else
 		{
 			PyErr_PrintEx(0);
 		}
 
-		// 通知所有组件
-		ScriptDefModule::COMPONENTDESCRIPTION_MAP& componentDescrs = pScriptModule_->getComponentDescrs();
-		ScriptDefModule::COMPONENTDESCRIPTION_MAP::iterator comps_iter = componentDescrs.begin();
-		for (; comps_iter != componentDescrs.end(); ++comps_iter)
-		{
-			if (!comps_iter->second->hasCell())
-				continue;
-
-			PyObject* pyTempObj = PyObject_GetAttrString(this, comps_iter->first.c_str());
-			if (pyTempObj)
-			{
-				PyObject* pyCompCallable = PyObject_GetAttrString(pyTempObj, const_cast<char*>(funcName));
-
-				if (pyCompCallable == NULL)
-				{
-					PyErr_Clear();
-				}
-				else
-				{
-					PyObject* pyCompResult = PyObject_CallObject(pyCompCallable, funcArgs);
-
-					Py_DECREF(pyCompCallable);
-
-					if (pyCompResult)
-					{
-						// todo: 待测试：这里需要考虑协程的情况
-						AsyncioHelper::submitCoroutine(pyCompResult);
-						Py_DECREF(pyCompResult);
-					}
-					else
-					{
-						PyErr_PrintEx(0);
-					}
-				}
-
-				Py_DECREF(pyTempObj);
-			}
-			else
-			{
-				SCRIPT_ERROR_CHECK();
-			}
-		}
-
-		if (funcArgs)
-			Py_DECREF(funcArgs);
-
-		Py_DECREF(this);
+		Py_DECREF(pyCompObj);
 	}
 
-	return true;
+	if (funcArgs)
+		Py_DECREF(funcArgs);
+
+	return hasEntityCallable;
 }
+
 
 //-------------------------------------------------------------------------------------
 void Entity::bufferCallback(bool enable)
