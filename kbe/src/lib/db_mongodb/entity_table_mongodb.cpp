@@ -176,7 +176,7 @@ namespace KBEngine {
 		//开始删除多余的索引，增加新的索引
 		bson_t keys;
 		bson_init(&keys);
-		mongoc_index_opt_t opt;
+		bson_t opt;
 
 		std::vector<EntityTableItem*>::iterator iiter = indexs.begin();
 		for (; iiter != indexs.end();)
@@ -203,26 +203,41 @@ namespace KBEngine {
 				}
 			}
 
+			//if (std::string("UNIQUE") == (*iiter)->indexType())
+			//{
+			//	//需要增加唯一索引
+			//	bson_init(&keys);
+			//	mongoc_index_opt_init(&opt);
+			//	opt.unique = true;
+			//	bson_append_int32(&keys, itemIndexsName.c_str(), -1, 1);
+			//	pdbiMongodb->collectionCreateIndex(name, &keys, &opt);
+			//}
+			//else
+			//{
+			//	bson_init(&keys);
+			//	mongoc_index_opt_init(&opt);
+			//	bson_append_int32(&keys, itemIndexsName.c_str(), -1, 1);
+			//	pdbiMongodb->collectionCreateIndex(name, &keys, &opt);
+			//}
+
+
+			bson_init(&keys);
+			bson_init(&opt);
+
+			BSON_APPEND_INT32(&keys, itemIndexsName.c_str(), 1);
+
 			if (std::string("UNIQUE") == (*iiter)->indexType())
 			{
-				//需要增加唯一索引
-				bson_init(&keys);
-				mongoc_index_opt_init(&opt);
-				opt.unique = true;
-				bson_append_int32(&keys, itemIndexsName.c_str(), -1, 1);
-				pdbiMongodb->collectionCreateIndex(name, &keys, &opt);
+				BSON_APPEND_BOOL(&opt, "unique", true);
 			}
-			else
-			{
-				bson_init(&keys);
-				mongoc_index_opt_init(&opt);
-				bson_append_int32(&keys, itemIndexsName.c_str(), -1, 1);
-				pdbiMongodb->collectionCreateIndex(name, &keys, &opt);
-			}
+
+			pdbiMongodb->collectionCreateIndex(name, &keys, &opt);
+
 
 			++iiter;
 		}
 		bson_destroy(&keys);
+		bson_destroy(&opt);
 
 		// 剩下的就是要从数据库删除的index
 		KBEUnordered_map<std::string, std::string>::iterator dbkey_iter = currDBKeys.begin();
@@ -256,16 +271,23 @@ namespace KBEngine {
 			DBInterfaceMongodb* pdbiMongodb = static_cast<DBInterfaceMongodb*>(pdbi);
 			if (pdbiMongodb->createCollection(name))
 			{
-				//第一次创建表，需要对主表ID加索引
-				//需要增加唯一索引
+				// 第一次创建表，需要对主表ID加唯一索引
 				bson_t keys;
-				mongoc_index_opt_t opt;
+				bson_t opts;
+
 				bson_init(&keys);
-				mongoc_index_opt_init(&opt);
-				opt.unique = true;
-				bson_append_int32(&keys, "id", -1, 1);
-				pdbiMongodb->collectionCreateIndex(name, &keys, &opt);
+				bson_init(&opts);
+
+				// key: { id: 1 }
+				BSON_APPEND_INT32(&keys, "id", 1);
+
+				// unique: true
+				BSON_APPEND_BOOL(&opts, "unique", true);
+
+				pdbiMongodb->collectionCreateIndex(name, &keys, &opts);
+
 				bson_destroy(&keys);
+				bson_destroy(&opts);
 			}
 
 			//因为mongodb缺少对数组的批量修改，导致无法像mysql那样做def字段的增加和删改。为了解决这个问题，要发挥mongodb的文件型数据库的的特点

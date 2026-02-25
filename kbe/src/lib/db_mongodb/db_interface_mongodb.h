@@ -11,8 +11,8 @@
 // #ifdef _MSC_VER //解决mongodb和python中ssize_t冲突定义的问题
 // #define _SSIZE_T_DEFINED
 // #endif
-#include "mongoc.h"
-#include <bson.h>
+#include "mongoc/mongoc.h"
+//#include <bson.h>
 #include <unordered_set>
 
 class MongoCursorGuard;
@@ -155,7 +155,7 @@ namespace KBEngine
 
 		std::unique_ptr<MongoCursorGuard> collectionFindIndexes(const char* tableName);
 
-		bool collectionCreateIndex(const char* tableName, const bson_t* keys, const mongoc_index_opt_t* opt);
+		bool collectionCreateIndex(const char* tableName, const bson_t* keys, const bson_t* opt);
 
 		bool collectionDropIndex(const char* tableName, const char* index_name);
 

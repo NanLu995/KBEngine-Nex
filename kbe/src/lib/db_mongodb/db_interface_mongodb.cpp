@@ -604,15 +604,35 @@ namespace KBEngine {
 	std::unique_ptr<MongoCursorGuard> DBInterfaceMongodb::collectionFind(const char* tableName, mongoc_query_flags_t flags, uint32_t skip, uint32_t limit, uint32_t  batch_size, const bson_t* query, const bson_t* fields, const mongoc_read_prefs_t* read_prefs)
 	{
 		querystatistics("SELECT");
-		mongoc_collection_t* collection = mongoc_database_get_collection(database, tableName);
-		mongoc_cursor_t* cursor = mongoc_collection_find(collection, flags, skip, limit, batch_size, query, fields, read_prefs);
 
-		// 改用MongoCursorGuard+ 智能指针，外部不需要再释放cursor和collection
-		std::unique_ptr<MongoCursorGuard> guard =
-			std::make_unique<MongoCursorGuard>(collection, cursor);
-		// 不 destroy collection
-		// mongoc_collection_destroy(collection);
-		return guard;
+		mongoc_collection_t* collection =
+			mongoc_database_get_collection(database, tableName);
+
+		bson_t opts;
+		bson_init(&opts);
+
+		if (skip > 0)
+			BSON_APPEND_INT64(&opts, "skip", skip);
+
+		if (limit > 0)
+			BSON_APPEND_INT64(&opts, "limit", limit);
+
+		if (batch_size > 0)
+			BSON_APPEND_INT64(&opts, "batchSize", batch_size);
+
+		if (fields)
+			BSON_APPEND_DOCUMENT(&opts, "projection", fields);
+
+		mongoc_cursor_t* cursor =
+			mongoc_collection_find_with_opts(
+				collection,
+				query,
+				&opts,
+				read_prefs);
+
+		bson_destroy(&opts);
+
+		return std::make_unique<MongoCursorGuard>(collection, cursor);
 	}
 
 	bool DBInterfaceMongodb::updateCollection(const char* tableName, mongoc_update_flags_t uflags, const bson_t* selector, const bson_t* update, const mongoc_write_concern_t* write_concern)
@@ -650,33 +670,63 @@ namespace KBEngine {
 	std::unique_ptr<MongoCursorGuard> DBInterfaceMongodb::collectionFindIndexes(const char* tableName)
 	{
 		querystatistics("SELECT_INDEX");
-		bson_error_t error = { 0 };
-		mongoc_collection_t* collection = mongoc_database_get_collection(database, tableName);
-		mongoc_cursor_t* cursor = mongoc_collection_find_indexes(collection, &error);
 
-		// 改用MongoCursorGuard+ 智能指针，外部不需要再释放cursor和collection
-		std::unique_ptr<MongoCursorGuard> guard =
-			std::make_unique<MongoCursorGuard>(collection, cursor);
+		mongoc_collection_t* collection =
+			mongoc_database_get_collection(database, tableName);
 
-		// mongoc_collection_destroy(collection);
-		return guard;
+		bson_t opts;
+		bson_init(&opts);   // 一般可以为空
+
+		mongoc_cursor_t* cursor =
+			mongoc_collection_find_indexes_with_opts(
+				collection,
+				&opts);
+
+		bson_destroy(&opts);
+
+		return std::make_unique<MongoCursorGuard>(collection, cursor);
 	}
 
-	bool DBInterfaceMongodb::collectionCreateIndex(const char* tableName, const bson_t* keys, const mongoc_index_opt_t* opt)
+	bool DBInterfaceMongodb::collectionCreateIndex(const char* tableName, const bson_t* keys, const bson_t* opt)
 	{
 		querystatistics("CREATE_INDEX");
-		mongoc_collection_t* collection = mongoc_database_get_collection(database, tableName);
+
+		mongoc_collection_t* collection =
+			mongoc_database_get_collection(database, tableName);
 
 		bson_error_t error;
-		bool r = mongoc_collection_create_index(collection, keys, opt, &error);
-		if (!r)
+		bool result = false;
+
+		// 创建 index model
+		mongoc_index_model_t* model =
+			mongoc_index_model_new(keys, opt);
+
+		if (!model)
+		{
+			ERROR_MSG("Failed to create index model\n");
+			mongoc_collection_destroy(collection);
+			return false;
+		}
+
+		mongoc_index_model_t* models[] = { model };
+
+		result = mongoc_collection_create_indexes_with_opts(
+			collection,
+			models,
+			1,
+			NULL,   // createIndexes 命令级 opts
+			NULL,   // reply
+			&error);
+
+		if (!result)
 		{
 			ERROR_MSG(fmt::format("{}\n", error.message));
 		}
 
+		mongoc_index_model_destroy(model);
 		mongoc_collection_destroy(collection);
 
-		return r;
+		return result;
 	}
 
 	bool DBInterfaceMongodb::collectionDropIndex(const char* tableName, const char* index_name)
@@ -794,7 +844,7 @@ namespace KBEngine {
 		while (mongoc_cursor_next(guard->cursor(), &doc))
 		{
 			nrows++;
-			char* str = bson_as_json(doc, NULL);
+			char* str = bson_as_relaxed_extended_json(doc, NULL);
 			value.push_back(str);
 		}
 
@@ -1006,7 +1056,7 @@ namespace KBEngine {
 		bool r = extuteFunction(q, NULL, &reply);
 		if (r)
 		{
-			char* str = bson_as_json(&reply, NULL);
+			char* str = bson_as_relaxed_extended_json(&reply, NULL);
 			result->appendBlob(str, static_cast<KBEngine::ArraySize>(strlen(str)));
 			bson_free(str);
 		}
