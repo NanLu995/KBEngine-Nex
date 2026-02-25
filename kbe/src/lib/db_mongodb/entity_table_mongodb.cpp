@@ -177,6 +177,7 @@ namespace KBEngine {
 		bson_t keys;
 		bson_init(&keys);
 		bson_t opt;
+		bson_init(&opt);
 
 		std::vector<EntityTableItem*>::iterator iiter = indexs.begin();
 		for (; iiter != indexs.end();)
