@@ -765,9 +765,12 @@ bool KBEAccountTableMysql::logAccount(DBInterface * pdbi, ACCOUNT_INFOS& info)
 	mysql_real_escape_string(static_cast<DBInterfaceMysql*>(pdbi)->mysql(), 
 		tbuf, info.password.c_str(), info.password.size());
 
-	sqlstr += "md5(\"";
-	sqlstr += tbuf;
-	sqlstr += "\"),";
+	//sqlstr += "md5(\"";
+	//sqlstr += tbuf;
+	//sqlstr += "\"),";
+	sqlstr += "\"";
+	sqlstr += KBE_MD5::getDigest(tbuf, strlen(tbuf));
+	sqlstr += "\",";
 
 	mysql_real_escape_string(static_cast<DBInterfaceMysql*>(pdbi)->mysql(), 
 		tbuf, info.datas.data(), info.datas.size());

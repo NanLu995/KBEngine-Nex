@@ -1,6 +1,11 @@
 
 # 更新日志
 
+## 2.7.2
+
+- [bug] 修复EntityComponent里的方法回调，需要owner实现该方法后，EntityComponent的回调才会被调用的BUG [Issue #107](https://github.com/KBEngineLab/KBEngine-Nex/issues/107)
+- [bug] mysql9中md5内置方法被移除 [Issue #108](https://github.com/KBEngineLab/KBEngine-Nex/issues/108)
+
 ## 2.7.1
 
 - [update] kbex 调试下，entity.xxx 不支持输出的问题 [Issue #102](https://github.com/KBEngineLab/KBEngine-Nex/issues/102)
