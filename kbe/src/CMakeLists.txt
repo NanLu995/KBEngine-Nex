@@ -200,7 +200,7 @@ find_package(EXPAT  REQUIRED COMPONENTS core)
 find_package(log4cxx CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(hiredis CONFIG REQUIRED)
-find_package(mongoc-1.0 CONFIG REQUIRED)
+find_package(mongoc CONFIG REQUIRED)
 find_package(recastnavigation CONFIG REQUIRED)
 
 

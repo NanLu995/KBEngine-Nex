@@ -12,7 +12,7 @@ add_library(db_mongodb STATIC ${SRCS})
 
 target_link_libraries(db_mongodb PUBLIC 
 	fmt::fmt
-	mongo::mongoc_static
+	mongo::static
 	python_interface
 )
 
