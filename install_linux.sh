@@ -189,6 +189,11 @@ else
     echo "[INFO] vcpkg already exists: $VCPKG_DIR"
 fi
 
+
+git -C "$VCPKG_DIR" reset --hard HEAD
+git -C "$VCPKG_DIR" pull
+
+
 OLDPWD=$(pwd)
 cd "$VCPKG_DIR"
 ./bootstrap-vcpkg.sh

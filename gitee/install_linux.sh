@@ -187,6 +187,11 @@ else
     echo "[INFO] vcpkg 已存在: $VCPKG_DIR"
 fi
 
+
+git -C "$VCPKG_DIR" reset --hard HEAD
+git -C "$VCPKG_DIR" pull
+
+
 # =========================================
 # downloads目录处理
 # =========================================
