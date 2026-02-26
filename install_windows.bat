@@ -110,8 +110,17 @@ if defined VCPKG_PATH (
 ) else (
     REM 2) Search default installation directory
     if exist "%USERPROFILE%\AppData\Local\kbe-vcpkg\vcpkg.exe" (
+
+
         set "VCPKG_EXE=%USERPROFILE%\AppData\Local\kbe-vcpkg\vcpkg.exe"
         set "VCPKG_PATH=%USERPROFILE%\AppData\Local\kbe-vcpkg"
+
+
+        git -C "%USERPROFILE%\AppData\Local\kbe-vcpkg" reset --hard HEAD
+        git -C "%USERPROFILE%\AppData\Local\kbe-vcpkg" pull
+
+        call "!VCPKG_PATH!\bootstrap-vcpkg.bat"
+
         goto :found_vcpkg
     )
 
@@ -132,6 +141,8 @@ if defined VCPKG_PATH (
 )
 
 :found_vcpkg
+
+
 echo [Found] vcpkg path: %VCPKG_EXE%
 echo [Executing] vcpkg integrate install ...
 "%VCPKG_EXE%" integrate install
