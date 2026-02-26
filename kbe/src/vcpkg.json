@@ -1,6 +1,6 @@
 {
   "name": "kbengine-nex",
-  "version": "2.6.3",
+  "version": "2.7.2",
   "dependencies": [
     "fmt",
     "log4cxx",
@@ -15,6 +15,53 @@
     {
       "name": "jemalloc",
       "platform": "!windows"
+    }
+  ],
+  "builtin-baseline": "29f10019c26142cc4689b53b8c91da519db09e5c",
+  "overrides": [
+    { 
+        "name": "fmt", 
+        "version": "12.1.0"
+    },
+    { 
+        "name": "log4cxx", 
+        "version": "1.6.1"
+    },
+    { 
+        "name": "zlib", 
+        "version": "1.3.1"
+    },
+    { 
+        "name": "hiredis", 
+        "version": "1.3.0"
+    },
+    { 
+        "name": "expat", 
+        "version": "2.7.4"
+    },
+    { 
+        "name": "apr", 
+        "version": "1.7.6"
+    },
+    { 
+        "name": "apr-util", 
+        "version": "1.6.3"
+    },
+    { 
+        "name": "curl", 
+        "version": "8.18.0"
+    },
+    { 
+        "name": "mongo-c-driver", 
+        "version": "2.2.2"
+    },
+    { 
+        "name": "recastnavigation", 
+        "version": "1.6.0"
+    },
+    { 
+        "name": "jemalloc", 
+        "version": "5.3.0"
     }
   ]
 }
