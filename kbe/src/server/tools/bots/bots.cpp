@@ -28,6 +28,8 @@
 #include "../../../server/baseapp/baseapp_interface.h"
 #include "../../../server/loginapp/loginapp_interface.h"
 
+#include "../../server/tools/logger/logger_interface.h"
+
 namespace KBEngine{
 
 //-------------------------------------------------------------------------------------
@@ -36,6 +38,7 @@ Bots::Bots(Network::EventDispatcher& dispatcher,
 			 COMPONENT_TYPE componentType,
 			 COMPONENT_ID componentID):
 ClientApp(dispatcher, ninterface, componentType, componentID),
+Components::ComponentsNotificationHandler(),
 pPyBots_(NULL),
 clients_(),
 reqCreateAndLoginTotalCount_(g_kbeSrvConfig.getBots().defaultAddBots_totalCount),
@@ -65,6 +68,8 @@ bool Bots::initialize()
 {
 	// 广播自己的地址给网上上的所有kbemachine
 	this->dispatcher().addTask(&Components::getSingleton());
+	Components::getSingleton().pHandler(this);
+
 	return ClientApp::initialize();
 }
 
@@ -238,6 +243,28 @@ bool Bots::installPyModules()
 	return true;
 }
 
+
+
+void Bots::onAddComponent(const Components::ComponentInfos* pInfos) {
+	if (pInfos->componentType == LOGGER_TYPE)
+	{
+		DebugHelper::getSingleton().registerLogger(LoggerInterface::writeLog.msgID, pInfos->pIntAddr.get());
+	}
+}
+void Bots::onRemoveComponent(const Components::ComponentInfos* pInfos) {
+	if (pInfos->componentType == LOGGER_TYPE)
+	{
+		DebugHelper::getSingleton().unregisterLogger(LoggerInterface::writeLog.msgID, pInfos->pIntAddr.get());
+	}
+}
+void Bots::onIdentityillegal(COMPONENT_TYPE componentType, COMPONENT_ID componentID, uint32 pid, const char* pAddr)
+{
+	ERROR_MSG(fmt::format("ServerApp::onIdentityillegal: The current process and {}(componentID={} ->conflicted???, pid={}, addr={}) conflict, the process will exit!\n"
+		"Can modify the components-CID and UID to avoid conflict.\n",
+		COMPONENT_NAME_EX((COMPONENT_TYPE)componentType), componentID, pid, pAddr));
+
+	this->shutDown();
+}
 //-------------------------------------------------------------------------------------
 bool Bots::uninstallPyModules()
 {

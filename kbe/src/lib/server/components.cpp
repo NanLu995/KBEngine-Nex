@@ -167,7 +167,6 @@ void Components::addComponent(int32 uid, const char* username,
 			Network::Channel* pChannel)
 {
 	COMPONENTS& components = getComponents(componentType);
-
 	if(!checkComponents(uid, componentID, pid))
 		return;
 
@@ -179,7 +178,7 @@ void Components::addComponent(int32 uid, const char* username,
 			COMPONENT_NAME_EX(componentType), uid, username, (int32)componentType, componentID));
 		return;
 	}
-	
+
 	// 如果该uid下没有已经运行的任何相关组件，那么重置计数器
 	if (getGameSrvComponentsSize(uid) == 0)
 	{
@@ -264,7 +263,7 @@ void Components::addComponent(int32 uid, const char* username,
 			((int32)componentInfos.globalOrderid),
 			((int32)componentInfos.groupOrderid),
 			components.size()));
-	
+
 	if(_pHandler)
 		_pHandler->onAddComponent(&componentInfos);
 }
