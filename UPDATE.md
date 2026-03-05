@@ -1,6 +1,12 @@
 
 # 更新日志
 
+## 2.7.3
+
+- [bug] 【KBEX】 启动多个pycharm时，进程管理有问题  [Issue #111](https://github.com/KBEngineLab/KBEngine-Nex/issues/111)
+- [feat] bots接入logger进程，用于单元测试 [#119](https://github.com/KBEngineLab/KBEngine-Nex/issues/119)
+
+
 ## 2.7.2
 
 - [bug] 修复EntityComponent里的方法回调，需要owner实现该方法后，EntityComponent的回调才会被调用的BUG [Issue #107](https://github.com/KBEngineLab/KBEngine-Nex/issues/107)
