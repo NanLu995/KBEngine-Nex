@@ -3,20 +3,23 @@
 
 ## 2.7.3
 
-- [bug] 【KBEX】 启动多个pycharm时，进程管理有问题  [Issue #111](https://github.com/KBEngineLab/KBEngine-Nex/issues/111)
+- [fix] 修复bots不触发心跳导致被卸载的bug
+- [fix] 【KBEX】 启动多个pycharm时，进程管理有问题  [Issue #111](https://github.com/KBEngineLab/KBEngine-Nex/issues/111)
 - [feat] bots接入logger进程，用于单元测试 [#119](https://github.com/KBEngineLab/KBEngine-Nex/issues/119)
-
+- [perf] vcpkg 依赖固定版本及安装脚本优化 [#115](https://github.com/KBEngineLab/KBEngine-Nex/issues/115)
+- [perf] 【KBEX】优化调用链不清晰时的补全逻辑
+- [feat] 【KBEX】添加Bots快捷启动入口
 
 ## 2.7.2
 
-- [bug] 修复EntityComponent里的方法回调，需要owner实现该方法后，EntityComponent的回调才会被调用的BUG [Issue #107](https://github.com/KBEngineLab/KBEngine-Nex/issues/107)
-- [bug] mysql9中md5内置方法被移除 [Issue #108](https://github.com/KBEngineLab/KBEngine-Nex/issues/108)
+- [fix] 修复EntityComponent里的方法回调，需要owner实现该方法后，EntityComponent的回调才会被调用的BUG [Issue #107](https://github.com/KBEngineLab/KBEngine-Nex/issues/107)
+- [fix] mysql9中md5内置方法被移除 [Issue #108](https://github.com/KBEngineLab/KBEngine-Nex/issues/108)
 - [update] mongodbc 升级到2.2.2 [Issue #113](https://github.com/KBEngineLab/KBEngine-Nex/issues/113)
 
 ## 2.7.1
 
 - [update] kbex 调试下，entity.xxx 不支持输出的问题 [Issue #102](https://github.com/KBEngineLab/KBEngine-Nex/issues/102)
-- [bug] 同时启动多个不同类型数据库，watcher冲突的bug [Issue #103](https://github.com/KBEngineLab/KBEngine-Nex/issues/103)
+- [fix] 同时启动多个不同类型数据库，watcher冲突的bug [Issue #103](https://github.com/KBEngineLab/KBEngine-Nex/issues/103)
 - [update] mongodb authSource应该验证对应的数据库，而不是admin [Issue #105](https://github.com/KBEngineLab/KBEngine-Nex/issues/105)
 - [update] kbex 增加entity快捷操作功能 [Issue #86](https://github.com/KBEngineLab/KBEngine-Nex/issues/86)
 
@@ -54,10 +57,10 @@
 - [feat] kbex 添加日志直连功能，用于外部启动引擎时连接日志 [Issue #61](https://github.com/KBEngineLab/KBEngine-Nex/issues/61)
 - [feat] kbex 插件更优的docker支持 [Issue #55](https://github.com/KBEngineLab/KBEngine-Nex/issues/55)
 - [feat] dockerfile 以及基础镜像 [Issue #56](https://github.com/KBEngineLab/KBEngine-Nex/issues/56)
-- [bug] webconsole 创建用户时，设置用户扩展数据报错 [Issue #53](https://github.com/KBEngineLab/KBEngine-Nex/issues/53)
-- [bug] webconsole py控制台无法多行输入的bug [Issue #52](https://github.com/KBEngineLab/KBEngine-Nex/issues/52)
-- [bug] kbex 调试模式异常输出的bug [Issue #63](https://github.com/KBEngineLab/KBEngine-Nex/issues/63)
-- [bug] 修复ts sdk里event Fire没有立即触发导致的延迟
+- [fix] webconsole 创建用户时，设置用户扩展数据报错 [Issue #53](https://github.com/KBEngineLab/KBEngine-Nex/issues/53)
+- [fix] webconsole py控制台无法多行输入的bug [Issue #52](https://github.com/KBEngineLab/KBEngine-Nex/issues/52)
+- [fix] kbex 调试模式异常输出的bug [Issue #63](https://github.com/KBEngineLab/KBEngine-Nex/issues/63)
+- [fix] 修复ts sdk里event Fire没有立即触发导致的延迟
 - [delete] 删除底层redis持久化实现 [Issue #71](https://github.com/KBEngineLab/KBEngine-Nex/issues/71)
 - [update] 基础demo 全面升级，适配服务端navmesh （unity、cocos、godot、ue5）
 - [update] assets移除一些历史spaces配置，所有基础demo统一在一个space配置（kbengine_all_demo）下实现，加速服务端启动
