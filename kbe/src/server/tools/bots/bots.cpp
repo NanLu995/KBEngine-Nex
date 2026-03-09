@@ -579,12 +579,15 @@ ClientObject* Bots::findClientByAppID(int32 appID)
 //-------------------------------------------------------------------------------------
 void Bots::onAppActiveTick(Network::Channel* pChannel, COMPONENT_TYPE componentType, COMPONENT_ID componentID)
 {
+	DEBUG_MSG(fmt::format("Bots::onAppActiveTick[{:p}]: {}:{} lastReceivedTime:{} at {}.\n",
+		(void*)pChannel, COMPONENT_NAME_EX(componentType), componentID, pChannel->lastReceivedTime(), pChannel->c_str()));
+
+
 	if(componentType != CLIENT_TYPE)
 		if(pChannel->isExternal())
 			return;
 	
-	Network::Channel* pTargetChannel = NULL;
-	if(componentType != CONSOLE_TYPE && componentType != CLIENT_TYPE)
+	if(componentType != CONSOLE_TYPE && componentType != CLIENT_TYPE )
 	{
 		Components::ComponentInfos* cinfos = 
 			Components::getSingleton().findComponent(componentType, KBEngine::getUserUID(), componentID);
@@ -597,17 +600,14 @@ void Bots::onAppActiveTick(Network::Channel* pChannel, COMPONENT_TYPE componentT
 			return;
 		}
 
-		pTargetChannel = cinfos->pChannel;
-		pTargetChannel->updateLastReceivedTime();
+		cinfos->pChannel->updateLastReceivedTime();
+
 	}
 	else
 	{
 		pChannel->updateLastReceivedTime();
-		pTargetChannel = pChannel;
 	}
 
-	//DEBUG_MSG(fmt::format("Bots::onAppActiveTick[:p]: {}:{} lastReceivedTime:{} at {}.\n",
-	//	(void*)pChannel, COMPONENT_NAME_EX(componentType), componentID, pChannel->lastReceivedTime(), pChannel->c_str()));
 }
 
 //-------------------------------------------------------------------------------------

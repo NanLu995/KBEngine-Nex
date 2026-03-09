@@ -659,6 +659,9 @@ void Channel::handleTimeout(TimerHandle, void * arg)
 	{
 		case TIMEOUT_INACTIVITY_CHECK:
 		{
+			/*WARNING_MSG(fmt::format("Channel::handleTimeout[{:p}]: external channel({})lowed({} ,{},{},{}).\n",
+				(void*)this, this->c_str(), this->componentID_, lastReceivedTime_, inactivityExceptionPeriod_ ,((timestamp() - lastReceivedTime_ >= inactivityExceptionPeriod_) ? "AA" : "BB")));*/
+
 			if (timestamp() - lastReceivedTime_ >= inactivityExceptionPeriod_)
 			{
 				this->networkInterface().onChannelTimeOut(this);
