@@ -36,6 +36,7 @@ namespace KBEngine{
 class ClientObject;
 class PyBots;
 class TelnetServer;
+class BotsActiveReportHandler;
 
 class Bots  : public ClientApp,
 	public Components::ComponentsNotificationHandler
@@ -383,6 +384,9 @@ protected:
 	Network::EventPoller*									pEventPoller_;
 
 	TelnetServer*											pTelnetServer_;
+
+	BotsActiveReportHandler* pActiveTimerHandle_;
+
 };
 
 }

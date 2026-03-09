@@ -12,6 +12,7 @@ set(SRCS
 	kcp_packet_sender_ex.cpp
 	tcp_packet_receiver_ex.cpp
 	tcp_packet_sender_ex.cpp
+	bots_active_report_handler.cpp
 )
 
 # 创建可执行程序

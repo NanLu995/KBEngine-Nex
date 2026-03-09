@@ -2,6 +2,7 @@
 
 #include "pybots.h"
 #include "bots.h"
+
 #include "clientobject.h"
 #include "server/telnet_server.h"
 #include "server/components.h"
@@ -30,6 +31,8 @@
 
 #include "../../server/tools/logger/logger_interface.h"
 
+#include "bots_active_report_handler.h"
+
 namespace KBEngine{
 
 //-------------------------------------------------------------------------------------
@@ -46,7 +49,8 @@ reqCreateAndLoginTickCount_(g_kbeSrvConfig.getBots().defaultAddBots_tickCount),
 reqCreateAndLoginTickTime_(g_kbeSrvConfig.getBots().defaultAddBots_tickTime),
 pCreateAndLoginHandler_(NULL),
 pEventPoller_(Network::EventPoller::create()),
-pTelnetServer_(NULL)
+pTelnetServer_(NULL),
+pActiveTimerHandle_(NULL)
 {
 	// 初始化EntityDef模块获取entity实体函数地址
 	EntityDef::setGetEntityFunc(std::tr1::bind(&Bots::tryGetEntity, this,
@@ -54,12 +58,18 @@ pTelnetServer_(NULL)
 
 	KBEngine::Network::MessageHandlers::pMainMessageHandlers = &BotsInterface::messageHandlers;
 	Components::getSingleton().initialize(&ninterface, componentType, componentID);
+
+	pActiveTimerHandle_ = new BotsActiveReportHandler(this);
+	pActiveTimerHandle_->startActiveTick(KBE_MAX(1.f, Network::g_channelInternalTimeout / 2.0f));
+	
 }
 
 //-------------------------------------------------------------------------------------
 Bots::~Bots()
 {
 	Components::getSingleton().finalise();
+
+	SAFE_RELEASE(pActiveTimerHandle_);
 	SAFE_RELEASE(pEventPoller_);
 }
 
@@ -579,8 +589,8 @@ ClientObject* Bots::findClientByAppID(int32 appID)
 //-------------------------------------------------------------------------------------
 void Bots::onAppActiveTick(Network::Channel* pChannel, COMPONENT_TYPE componentType, COMPONENT_ID componentID)
 {
-	DEBUG_MSG(fmt::format("Bots::onAppActiveTick[{:p}]: {}:{} lastReceivedTime:{} at {}.\n",
-		(void*)pChannel, COMPONENT_NAME_EX(componentType), componentID, pChannel->lastReceivedTime(), pChannel->c_str()));
+	/*DEBUG_MSG(fmt::format("Bots::onAppActiveTick[{:p}]: {}:{} lastReceivedTime:{} at {}.\n",
+		(void*)pChannel, COMPONENT_NAME_EX(componentType), componentID, pChannel->lastReceivedTime(), pChannel->c_str()));*/
 
 
 	if(componentType != CLIENT_TYPE)
