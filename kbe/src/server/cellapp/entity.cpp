@@ -2693,14 +2693,14 @@ uint32 Entity::navigate(const Position3D& destination, float velocity, float dis
 	velocity = velocity / g_kbeSrvConfig.gameUpdateHertz();
 
 	KBEShared_ptr<Controller> p(new MoveController(this, NULL));
-	
+	NavigateHandler* handler = nullptr;
 	if (useDetour) {
-		new NavigateHandler(p, destination, distance, velocity, layer,
+		handler = new NavigateHandler(p, destination, distance, velocity, layer,
 			maxMoveDistance, faceMovement, userData, useDetour);
 	}
 	else {
-		new NavigateHandler(p, destination, velocity,
-			distance, faceMovement, maxMoveDistance, paths_ptr, userData);
+		handler = new NavigateHandler(p, destination, velocity,
+		distance, faceMovement, maxMoveDistance, paths_ptr, userData);
 	}
 	
 
@@ -2708,6 +2708,11 @@ uint32 Entity::navigate(const Position3D& destination, float velocity, float dis
 	KBE_ASSERT(ret);
 	
 	pMoveController_ = p;
+	// 立即执行一次 update（避免空帧）
+	if (handler && !handler->isDestroyed())
+	{
+		handler->update();
+	}
 	return p->id();
 }
 
