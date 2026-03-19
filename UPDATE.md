@@ -3,6 +3,7 @@
 
 ## 2.7.3
 
+- [fix] 修复navigate不绕过障碍物的bug
 - [fix] 修复bots不触发心跳导致被卸载的bug
 - [fix] 【KBEX】 启动多个pycharm时，进程管理有问题  [Issue #111](https://github.com/KBEngineLab/KBEngine-Nex/issues/111)
 - [feat] bots接入logger进程，用于单元测试 [#119](https://github.com/KBEngineLab/KBEngine-Nex/issues/119)

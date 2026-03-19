@@ -2694,8 +2694,15 @@ uint32 Entity::navigate(const Position3D& destination, float velocity, float dis
 
 	KBEShared_ptr<Controller> p(new MoveController(this, NULL));
 	
-	new NavigateHandler(p, destination, distance,velocity,layer,
-		maxMoveDistance, faceMovement, userData, useDetour);
+	if (useDetour) {
+		new NavigateHandler(p, destination, distance, velocity, layer,
+			maxMoveDistance, faceMovement, userData, useDetour);
+	}
+	else {
+		new NavigateHandler(p, destination, velocity,
+			distance, faceMovement, maxMoveDistance, paths_ptr, userData);
+	}
+	
 
 	bool ret = pControllers_->add(p);
 	KBE_ASSERT(ret);

@@ -9,6 +9,21 @@
 
 namespace KBEngine
 {
+    //-------------------------------------------------------------------------------------
+    NavigateHandler::NavigateHandler(KBEShared_ptr<Controller>& pController, const Position3D& destPos,
+        float velocity, float distance, bool faceMovement,
+        float maxMoveDistance, VECTOR_POS3D_PTR paths_ptr,
+        PyObject* userarg) :
+        MoveToPointHandler(pController, pController->pEntity()->layer(), pController->pEntity()->position(), velocity, distance, faceMovement, false, userarg),
+        destPosIdx_(0),
+        paths_(paths_ptr),
+        maxMoveDistance_(maxMoveDistance)
+    {
+        destPos_ = (*paths_)[destPosIdx_++];
+
+        updatableName = "NavigateHandler";
+    }
+
 
     // ------------------------------------------------------------
     // ctor / dtor
@@ -28,10 +43,12 @@ namespace KBEngine
         currentPathIndex_(0),
         pathValid_(false),
         useDetour_(useDetour),
+        destPosIdx_(0),
+        paths_(),
         maxMoveDistance_(maxMoveDistance)
     {
         updatableName = "NavigateHandler";
-        Py_INCREF(pyuserarg_);
+        //Py_INCREF(pyuserarg_);
 
         if (!useDetour_ || !pController_ || !pController_->pEntity())
             return;
@@ -57,8 +74,8 @@ namespace KBEngine
 
     NavigateHandler::~NavigateHandler()
     {
-        if (pyuserarg_)
-            Py_DECREF(pyuserarg_);
+        /*if (pyuserarg_)
+            Py_DECREF(pyuserarg_);*/
     }
 
     // ------------------------------------------------------------
@@ -115,15 +132,27 @@ namespace KBEngine
     // ------------------------------------------------------------
     bool NavigateHandler::requestMoveOver(const Position3D& oldPos)
     {
-        if (pController_)
+        if (useDetour_)
         {
-            if (pController_->pEntity())
-                pController_->pEntity()->onMoveOver(
-                    pController_->id(), layer_, oldPos, pyuserarg_);
+            if (pController_)
+            {
+                if (pController_->pEntity())
+                    pController_->pEntity()->onMoveOver(
+                        pController_->id(), layer_, oldPos, pyuserarg_);
 
-            pController_->destroy();
+                pController_->destroy();
+            }
+            return true;
         }
-        return true;
+        else {
+            if (destPosIdx_ == ((int)paths_->size()))
+                return MoveToPointHandler::requestMoveOver(oldPos);
+            else
+                destPos_ = (*paths_)[destPosIdx_++];
+
+            return false;
+        }
+        
     }
 
     bool NavigateHandler::requestMoveFailure()
@@ -146,7 +175,6 @@ namespace KBEngine
     {
         if (!useDetour_)
             return MoveToPointHandler::update();
-
 
 
         if (isDestroyed_)
@@ -286,7 +314,7 @@ namespace KBEngine
         // 5. 到达终点判断
         // -----------------------------
         float sqrDistToDest = (destPos_ - nextPos).squaredLength();
-        if (sqrDistToDest <= distance_ * distance_)
+        if (isDestroyed_ || sqrDistToDest <= distance_ * distance_)
         {
             requestMoveOver(nextPos);
             Py_DECREF(pEntity);
