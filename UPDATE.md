@@ -3,6 +3,7 @@
 
 ## 2.7.3
 
+- [fix] entity添加isOnNavigate，使用navigateToDetour时，设置isOnGround为true的同时也能下发y轴
 - [fix] 修复navigate不绕过障碍物的bug
 - [fix] 修复navigate持续触发时卡顿的bug
 - [fix] 修复bots不触发心跳导致被卸载的bug
