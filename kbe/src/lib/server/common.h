@@ -147,6 +147,11 @@ namespace KBEngine {
 				BUNDLE.newMessage(InterfacesInterface::MESSAGENAME);										\
 			}																								\
 			break;																							\
+		case BOTS_TYPE:																				\
+			{																								\
+				BUNDLE.newMessage(BotsInterface::MESSAGENAME);										\
+			}																								\
+			break;																							\
 		default:																							\
 			ERROR_MSG(fmt::format("not support componentType={}({})\n",										\
 					static_cast<int>(COMPONENTTYPE), COMPONENT_NAME_EX(COMPONENTTYPE)));										\

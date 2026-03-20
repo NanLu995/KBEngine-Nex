@@ -36,8 +36,10 @@ namespace KBEngine{
 class ClientObject;
 class PyBots;
 class TelnetServer;
+class BotsActiveReportHandler;
 
-class Bots  : public ClientApp
+class Bots  : public ClientApp,
+	public Components::ComponentsNotificationHandler
 {
 public:
 	Bots(Network::EventDispatcher& dispatcher, 
@@ -56,6 +58,12 @@ public:
 	virtual bool installPyModules();
 	virtual void onInstallPyModules() {};
 	virtual bool uninstallPyModules();
+
+	void onAddComponent(const Components::ComponentInfos*);
+	void onRemoveComponent(const Components::ComponentInfos*);
+	void onIdentityillegal(COMPONENT_TYPE componentType, COMPONENT_ID componentID, uint32 pid, const char* pAddr);
+
+	//virtual void on
 	bool uninstallPyScript();
 	bool installEntityDef();
 
@@ -376,6 +384,9 @@ protected:
 	Network::EventPoller*									pEventPoller_;
 
 	TelnetServer*											pTelnetServer_;
+
+	BotsActiveReportHandler* pActiveTimerHandle_;
+
 };
 
 }

@@ -23,6 +23,10 @@ namespace KBEngine {
     class NavigateHandler : public MoveToPointHandler
     {
     public:
+        NavigateHandler(KBEShared_ptr<Controller>& pController, const Position3D& destPos, float velocity, float distance, bool faceMovement,
+            float maxMoveDistance, VECTOR_POS3D_PTR paths_ptr,
+            PyObject* userarg);
+
         NavigateHandler(KBEShared_ptr<Controller>& pController,
             const Position3D& destPos,
             float distance,
@@ -54,6 +58,10 @@ namespace KBEngine {
         virtual const Position3D& destPos() { return destPos_; }
 
     private:
+
+        int destPosIdx_;
+        VECTOR_POS3D_PTR paths_;
+
         // ---------------- Detour 数据 ----------------
         NavigationHandlePtr navHandle_;
         dtPolyRef polyRef_ = NavMeshHandle::INVALID_NAVMESH_POLYREF;

@@ -54,6 +54,9 @@
     <ClCompile Include="kcp_packet_sender_ex.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="bots_active_report_handler.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bots.h">
@@ -87,6 +90,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="kcp_packet_sender_ex.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="bots_active_report_handler.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

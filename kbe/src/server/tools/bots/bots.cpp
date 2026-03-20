@@ -2,6 +2,7 @@
 
 #include "pybots.h"
 #include "bots.h"
+
 #include "clientobject.h"
 #include "server/telnet_server.h"
 #include "server/components.h"
@@ -28,6 +29,10 @@
 #include "../../../server/baseapp/baseapp_interface.h"
 #include "../../../server/loginapp/loginapp_interface.h"
 
+#include "../../server/tools/logger/logger_interface.h"
+
+#include "bots_active_report_handler.h"
+
 namespace KBEngine{
 
 //-------------------------------------------------------------------------------------
@@ -36,6 +41,7 @@ Bots::Bots(Network::EventDispatcher& dispatcher,
 			 COMPONENT_TYPE componentType,
 			 COMPONENT_ID componentID):
 ClientApp(dispatcher, ninterface, componentType, componentID),
+Components::ComponentsNotificationHandler(),
 pPyBots_(NULL),
 clients_(),
 reqCreateAndLoginTotalCount_(g_kbeSrvConfig.getBots().defaultAddBots_totalCount),
@@ -43,7 +49,8 @@ reqCreateAndLoginTickCount_(g_kbeSrvConfig.getBots().defaultAddBots_tickCount),
 reqCreateAndLoginTickTime_(g_kbeSrvConfig.getBots().defaultAddBots_tickTime),
 pCreateAndLoginHandler_(NULL),
 pEventPoller_(Network::EventPoller::create()),
-pTelnetServer_(NULL)
+pTelnetServer_(NULL),
+pActiveTimerHandle_(NULL)
 {
 	// 初始化EntityDef模块获取entity实体函数地址
 	EntityDef::setGetEntityFunc(std::tr1::bind(&Bots::tryGetEntity, this,
@@ -51,12 +58,18 @@ pTelnetServer_(NULL)
 
 	KBEngine::Network::MessageHandlers::pMainMessageHandlers = &BotsInterface::messageHandlers;
 	Components::getSingleton().initialize(&ninterface, componentType, componentID);
+
+	pActiveTimerHandle_ = new BotsActiveReportHandler(this);
+	pActiveTimerHandle_->startActiveTick(KBE_MAX(1.f, Network::g_channelInternalTimeout / 2.0f));
+	
 }
 
 //-------------------------------------------------------------------------------------
 Bots::~Bots()
 {
 	Components::getSingleton().finalise();
+
+	SAFE_RELEASE(pActiveTimerHandle_);
 	SAFE_RELEASE(pEventPoller_);
 }
 
@@ -65,6 +78,8 @@ bool Bots::initialize()
 {
 	// 广播自己的地址给网上上的所有kbemachine
 	this->dispatcher().addTask(&Components::getSingleton());
+	Components::getSingleton().pHandler(this);
+
 	return ClientApp::initialize();
 }
 
@@ -238,6 +253,28 @@ bool Bots::installPyModules()
 	return true;
 }
 
+
+
+void Bots::onAddComponent(const Components::ComponentInfos* pInfos) {
+	if (pInfos->componentType == LOGGER_TYPE)
+	{
+		DebugHelper::getSingleton().registerLogger(LoggerInterface::writeLog.msgID, pInfos->pIntAddr.get());
+	}
+}
+void Bots::onRemoveComponent(const Components::ComponentInfos* pInfos) {
+	if (pInfos->componentType == LOGGER_TYPE)
+	{
+		DebugHelper::getSingleton().unregisterLogger(LoggerInterface::writeLog.msgID, pInfos->pIntAddr.get());
+	}
+}
+void Bots::onIdentityillegal(COMPONENT_TYPE componentType, COMPONENT_ID componentID, uint32 pid, const char* pAddr)
+{
+	ERROR_MSG(fmt::format("ServerApp::onIdentityillegal: The current process and {}(componentID={} ->conflicted???, pid={}, addr={}) conflict, the process will exit!\n"
+		"Can modify the components-CID and UID to avoid conflict.\n",
+		COMPONENT_NAME_EX((COMPONENT_TYPE)componentType), componentID, pid, pAddr));
+
+	this->shutDown();
+}
 //-------------------------------------------------------------------------------------
 bool Bots::uninstallPyModules()
 {
@@ -552,12 +589,15 @@ ClientObject* Bots::findClientByAppID(int32 appID)
 //-------------------------------------------------------------------------------------
 void Bots::onAppActiveTick(Network::Channel* pChannel, COMPONENT_TYPE componentType, COMPONENT_ID componentID)
 {
+	/*DEBUG_MSG(fmt::format("Bots::onAppActiveTick[{:p}]: {}:{} lastReceivedTime:{} at {}.\n",
+		(void*)pChannel, COMPONENT_NAME_EX(componentType), componentID, pChannel->lastReceivedTime(), pChannel->c_str()));*/
+
+
 	if(componentType != CLIENT_TYPE)
 		if(pChannel->isExternal())
 			return;
 	
-	Network::Channel* pTargetChannel = NULL;
-	if(componentType != CONSOLE_TYPE && componentType != CLIENT_TYPE)
+	if(componentType != CONSOLE_TYPE && componentType != CLIENT_TYPE )
 	{
 		Components::ComponentInfos* cinfos = 
 			Components::getSingleton().findComponent(componentType, KBEngine::getUserUID(), componentID);
@@ -570,17 +610,14 @@ void Bots::onAppActiveTick(Network::Channel* pChannel, COMPONENT_TYPE componentT
 			return;
 		}
 
-		pTargetChannel = cinfos->pChannel;
-		pTargetChannel->updateLastReceivedTime();
+		cinfos->pChannel->updateLastReceivedTime();
+
 	}
 	else
 	{
 		pChannel->updateLastReceivedTime();
-		pTargetChannel = pChannel;
 	}
 
-	//DEBUG_MSG(fmt::format("Bots::onAppActiveTick[:p]: {}:{} lastReceivedTime:{} at {}.\n",
-	//	(void*)pChannel, COMPONENT_NAME_EX(componentType), componentID, pChannel->lastReceivedTime(), pChannel->c_str()));
 }
 
 //-------------------------------------------------------------------------------------

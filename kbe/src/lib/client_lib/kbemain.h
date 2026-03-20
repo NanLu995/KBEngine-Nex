@@ -257,7 +257,9 @@ int kbeMainT(int argc, char * argv[], COMPONENT_TYPE componentType,
 	Network::NetworkInterface networkInterface(&dispatcher, 
 		extlisteningTcpPort_min, extlisteningTcpPort_max, extlisteningUdpPort_min, extlisteningUdpPort_max, extlisteningInterface, 0, 0,
 		intlisteningPort_min, intlisteningPort_max, intlisteningInterface, 0, 0);
-	
+
+	DebugHelper::getSingleton().pNetworkInterface(&networkInterface);
+
 	KBEngine::script::Script script;
 	if(!installPyScript(script, componentType))
 	{
@@ -267,12 +269,14 @@ int kbeMainT(int argc, char * argv[], COMPONENT_TYPE componentType,
 
 	CLIENT_APP* pApp = new CLIENT_APP(dispatcher, networkInterface, componentType, g_componentID);
 	pApp->setScript(&script);
-
+	Components::getSingleton().findLogger();
 	START_MSG(COMPONENT_NAME_EX(componentType), g_componentID);
 	if(!pApp->initialize()){
 		ERROR_MSG("app::initialize error!\n");
 		pApp->finalise();
 		Py_DECREF(pApp);
+
+		DebugHelper::getSingleton().finalise();
 		uninstallPyScript(script);
 		return -1;
 	}

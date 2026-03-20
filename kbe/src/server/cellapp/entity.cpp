@@ -111,6 +111,7 @@ pPyDirection_(NULL),
 posChangedTime_(0),
 dirChangedTime_(0),
 isOnGround_(false),
+isOnNavigate_(false),
 topSpeed_(-0.1f),
 topSpeedY_(-0.1f),
 witnesses_(),
@@ -2693,14 +2694,26 @@ uint32 Entity::navigate(const Position3D& destination, float velocity, float dis
 	velocity = velocity / g_kbeSrvConfig.gameUpdateHertz();
 
 	KBEShared_ptr<Controller> p(new MoveController(this, NULL));
+	NavigateHandler* handler = nullptr;
+	if (useDetour) {
+		handler = new NavigateHandler(p, destination, distance, velocity, layer,
+			maxMoveDistance, faceMovement, userData, useDetour);
+	}
+	else {
+		handler = new NavigateHandler(p, destination, velocity,
+		distance, faceMovement, maxMoveDistance, paths_ptr, userData);
+	}
 	
-	new NavigateHandler(p, destination, distance,velocity,layer,
-		maxMoveDistance, faceMovement, userData, useDetour);
 
 	bool ret = pControllers_->add(p);
 	KBE_ASSERT(ret);
 	
 	pMoveController_ = p;
+	// 立即执行一次 update（避免空帧）
+	if (handler && !handler->isDestroyed())
+	{
+		handler->update();
+	}
 	return p->id();
 }
 
