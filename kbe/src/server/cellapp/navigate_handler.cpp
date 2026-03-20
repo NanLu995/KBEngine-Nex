@@ -203,6 +203,7 @@ namespace KBEngine
             if (!buildPath(currPos))
             {
                 requestMoveFailure();
+                pEntity->isOnNavigate(false);
                 Py_DECREF(pEntity);
                 delete this;
                 return false;
@@ -212,6 +213,7 @@ namespace KBEngine
         if (straightPath_.empty())
         {
             requestMoveOver(oldPos);
+            pEntity->isOnNavigate(false);
             Py_DECREF(pEntity);
             delete this;
             return false;
@@ -260,6 +262,7 @@ namespace KBEngine
             if (currentPathIndex_ >= (int)straightPath_.size())
             {
                 requestMoveOver(currPos);
+                pEntity->isOnNavigate(false);
                 Py_DECREF(pEntity);
                 delete this;
                 return false;
@@ -306,9 +309,17 @@ namespace KBEngine
         if (faceMovement_ && (moveDir.x != 0.f || moveDir.z != 0.f))
             dir.yaw(moveDir.yaw());
 
-        pEntity->setPositionAndDirection(nextPos, dir);
-        pEntity->isOnGround(true);
-        pEntity->onMove(pController_->id(), layer_, oldPos, pyuserarg_);
+        if (!isDestroyed_)
+            pEntity->setPositionAndDirection(nextPos, dir);
+        if (!isDestroyed_)
+            pEntity->isOnGround(true);
+
+        if (!isDestroyed_)
+            pEntity->isOnNavigate(true);
+
+        //pEntity->isOnGround(true);
+        if (!isDestroyed_)
+            pEntity->onMove(pController_->id(), layer_, oldPos, pyuserarg_);
 
         // -----------------------------
         // 5. 到达终点判断
@@ -316,6 +327,8 @@ namespace KBEngine
         float sqrDistToDest = (destPos_ - nextPos).squaredLength();
         if (isDestroyed_ || sqrDistToDest <= distance_ * distance_)
         {
+
+            pEntity->isOnNavigate(false);
             requestMoveOver(nextPos);
             Py_DECREF(pEntity);
             delete this;

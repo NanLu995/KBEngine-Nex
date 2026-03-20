@@ -217,6 +217,19 @@ INLINE bool Entity::isOnGround() const
 	return isOnGround_;
 }
 
+
+//-------------------------------------------------------------------------------------
+INLINE void Entity::isOnNavigate(bool v)
+{
+	isOnNavigate_ = v;
+}
+
+//-------------------------------------------------------------------------------------
+INLINE bool Entity::isOnNavigate() const
+{
+	return isOnNavigate_;
+}
+
 //-------------------------------------------------------------------------------------
 INLINE GAME_TIME Entity::posChangedTime() const
 {
