@@ -1,6 +1,13 @@
 
 # 更新日志
 
+## 2.7.4
+- [feat] NavMesh Generator 添加了一个坐标配置管理器
+    1.支持选点添加或更新到配置
+    2.支持导入导出json、python
+    3.支持下载集合或单个地图配置
+    4.支持浏览器本地存储（30s自动存储
+
 ## 2.7.3
 
 - [fix] entity添加isOnNavigate，使用navigateToDetour时，设置isOnGround为true的同时也能下发y轴
