@@ -29,6 +29,7 @@ namespace KBEngine {
 		MoveToPointHandler();
 		virtual ~MoveToPointHandler();
 
+		virtual bool stepMoveOnceWithoutDelete();
 		virtual bool update();
 
 		virtual const Position3D& destPos() { return destPos_; }

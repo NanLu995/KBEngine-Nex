@@ -2712,7 +2712,7 @@ uint32 Entity::navigate(const Position3D& destination, float velocity, float dis
 	// 立即执行一次 update（避免空帧）
 	if (handler && !handler->isDestroyed())
 	{
-		handler->update();
+		handler->stepMoveOnceWithoutDelete();
 	}
 	return p->id();
 }

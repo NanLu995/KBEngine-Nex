@@ -168,25 +168,21 @@ namespace KBEngine
         return true;
     }
 
-    // ------------------------------------------------------------
-    // update
-    // ------------------------------------------------------------
-    bool NavigateHandler::update()
-    {
+
+    //-------------------------------------------------------------------------------------
+    bool NavigateHandler::stepMoveOnceWithoutDelete() {
         if (!useDetour_)
-            return MoveToPointHandler::update();
+            return MoveToPointHandler::stepMoveOnceWithoutDelete();
 
 
         if (isDestroyed_)
         {
-            delete this;
             return false;
         }
 
         if (!pController_ || !pController_->pEntity() || !navHandle_)
         {
             requestMoveFailure();
-            delete this;
             return false;
         }
 
@@ -202,12 +198,20 @@ namespace KBEngine
         {
             if (!buildPath(currPos))
             {
-                requestMoveFailure();
-                pEntity->isOnNavigate(false);
+                retryCount_++;
+
+                if (retryCount_ > 5)
+                {
+                    requestMoveFailure();
+                    pEntity->isOnNavigate(false);
+                    Py_DECREF(pEntity);
+                    return false;
+                }
+
                 Py_DECREF(pEntity);
-                delete this;
-                return false;
+                return true;
             }
+            retryCount_ = 0;
         }
 
         if (straightPath_.empty())
@@ -215,7 +219,6 @@ namespace KBEngine
             requestMoveOver(oldPos);
             pEntity->isOnNavigate(false);
             Py_DECREF(pEntity);
-            delete this;
             return false;
         }
 
@@ -264,7 +267,6 @@ namespace KBEngine
                 requestMoveOver(currPos);
                 pEntity->isOnNavigate(false);
                 Py_DECREF(pEntity);
-                delete this;
                 return false;
             }
 
@@ -282,6 +284,21 @@ namespace KBEngine
             moveDir *= maxMoveDistance_;
         }
 
+        if (!polyRef_)
+        {
+            invalidatePath();
+            Py_DECREF(pEntity);
+            return true;
+        }
+
+
+        // 极端情况下被释放了
+        if (!navHandle_)
+        {
+            Py_DECREF(pEntity);
+            return false;
+        }
+
         // -----------------------------
         // 3. moveAlongSurface
         // -----------------------------
@@ -295,12 +312,33 @@ namespace KBEngine
 
         if (!moved)
         {
-            invalidatePath(); // corridor 失效 → 重算
+            retryCount_++;
+
+            if (retryCount_ > 5)
+            {
+                ERROR_MSG("NavigateHandler::update: move failed too many times\n");
+
+                requestMoveFailure();
+                pEntity->isOnNavigate(false);
+                Py_DECREF(pEntity);
+                return false;
+            }
+
+            invalidatePath();
             Py_DECREF(pEntity);
             return true;
         }
 
-        nextPos.y = navHandle_->getPolyHeight(layer_, polyRef_, nextPos);
+        float h = navHandle_->getPolyHeight(layer_, polyRef_, nextPos);
+
+        if (h <= -FLT_MAX) // 或你引擎里的无效值判断
+        {
+            invalidatePath();
+            Py_DECREF(pEntity);
+            return true;
+        }
+
+        nextPos.y = h;
 
         // -----------------------------
         // 4. 设置方向与位置
@@ -331,12 +369,26 @@ namespace KBEngine
             pEntity->isOnNavigate(false);
             requestMoveOver(nextPos);
             Py_DECREF(pEntity);
-            delete this;
             return false;
         }
 
         Py_DECREF(pEntity);
         return true;
+    }
+
+    // ------------------------------------------------------------
+    // update
+    // ------------------------------------------------------------
+    bool NavigateHandler::update()
+    {
+        if (!stepMoveOnceWithoutDelete())
+        {
+            delete this;
+            return false;
+        }
+
+        return true;
+        
     }
 
 

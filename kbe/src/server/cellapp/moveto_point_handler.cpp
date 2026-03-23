@@ -97,14 +97,12 @@ bool MoveToPointHandler::requestMoveOver(const Position3D& oldPos)
 }
 
 //-------------------------------------------------------------------------------------
-bool MoveToPointHandler::update()
-{
+bool MoveToPointHandler::stepMoveOnceWithoutDelete() {
 	if (isDestroyed_)
 	{
-		delete this;
 		return false;
 	}
-	
+
 	Entity* pEntity = pController_->pEntity();
 	Py_INCREF(pEntity);
 
@@ -115,7 +113,7 @@ bool MoveToPointHandler::update()
 
 	Vector3 movement = dstPos - currpos;
 	if (!moveVertically_) movement.y = 0.f;
-	
+
 	bool ret = true;
 	float dist_len = KBEVec3Length(&movement);
 
@@ -126,9 +124,9 @@ bool MoveToPointHandler::update()
 		if (distance_ > 0.0f)
 		{
 			// 单位化向量
-			KBEVec3Normalize(&movement, &movement); 
-				
-			if(dist_len > distance_)
+			KBEVec3Normalize(&movement, &movement);
+
+			if (dist_len > distance_)
 			{
 				movement *= distance_;
 				currpos = dstPos - movement;
@@ -147,13 +145,13 @@ bool MoveToPointHandler::update()
 	else
 	{
 		// 单位化向量
-		KBEVec3Normalize(&movement, &movement); 
+		KBEVec3Normalize(&movement, &movement);
 
 		// 移动位置
 		movement *= velocity_;
 		currpos += movement;
 	}
-	
+
 	// 是否需要改变面向
 	if (faceMovement_)
 	{
@@ -163,29 +161,40 @@ bool MoveToPointHandler::update()
 		if (movement.y != 0.f)
 			direction.pitch(movement.pitch());
 	}
-	
+
 	// 设置entity的新位置和面向
-	if(!isDestroyed_)
+	if (!isDestroyed_)
 		pEntity->setPositionAndDirection(currpos, direction);
 
 	// 非navigate都不能确定其在地面上
-	if(!isDestroyed_)
+	if (!isDestroyed_)
 		pEntity->isOnGround(isOnGround());
 
 	// 通知脚本
-	if(!isDestroyed_)
+	if (!isDestroyed_)
 		pEntity->onMove(pController_->id(), layer_, currpos_backup, pyuserarg_);
 
 	// 如果在onMove过程中被停止，又或者达到目的地了，则直接销毁并返回false
-	if (isDestroyed_ || 
+	if (isDestroyed_ ||
 		(!ret && requestMoveOver(currpos_backup)))
 	{
 		Py_DECREF(pEntity);
-		delete this;
 		return false;
 	}
 
 	Py_DECREF(pEntity);
+	return true;
+}
+
+//-------------------------------------------------------------------------------------
+bool MoveToPointHandler::update()
+{
+	if (!stepMoveOnceWithoutDelete())
+	{
+		delete this;
+		return false;
+	}
+
 	return true;
 }
 
