@@ -1,6 +1,16 @@
 
 # 更新日志
 
+## 2.7.4
+- [feat] NavMesh Generator 添加了一个坐标配置管理器
+    1.支持选点添加或更新到配置
+    2.支持导入导出json、python
+    3.支持下载集合或单个地图配置
+    4.支持浏览器本地存储（30s自动存储
+- [fix] 修复navigation补帧触发导致脱离生命周期出现的bug
+- [fix] c# sdk event中补全一些参数和注释 [Issue #125](https://github.com/KBEngineLab/KBEngine-Nex/issues/125)
+- [perf] KBEDebug.py升级，打印文件、行号，支持跳转 [Issue #124](https://github.com/KBEngineLab/KBEngine-Nex/issues/124)
+
 ## 2.7.3
 
 - [fix] entity添加isOnNavigate，使用navigateToDetour时，设置isOnGround为true的同时也能下发y轴

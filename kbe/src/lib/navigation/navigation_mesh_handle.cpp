@@ -74,7 +74,7 @@ int NavMeshHandle::findStraightPath(int layer, const Position3D& start, const Po
 
 	if (!startRef || !endRef)
 	{
-		ERROR_MSG(fmt::format("NavMeshHandle::findStraightPath({2}): Could not find any nearby poly's ({0}, {1})\n", startRef, endRef, resPath));
+		WARNING_MSG(fmt::format("NavMeshHandle::findStraightPath({2}): Could not find any nearby poly's ({0}, {1})\n", startRef, endRef, resPath));
 		return NAV_ERROR_NEARESTPOLY;
 	}
 
@@ -122,7 +122,7 @@ int NavMeshHandle::findRandomPointAroundCircle(int layer, const Position3D& cent
 	std::map<int, NavmeshLayer>::iterator iter = navmeshLayer.find(layer);
 	if (iter == navmeshLayer.end())
 	{
-		ERROR_MSG(fmt::format("NavMeshHandle::findRandomPointAroundCircle: not found layer({})\n", layer));
+		WARNING_MSG(fmt::format("NavMeshHandle::findRandomPointAroundCircle: not found layer({})\n", layer));
 		return NAV_ERROR;
 	}
 
@@ -169,7 +169,7 @@ int NavMeshHandle::findRandomPointAroundCircle(int layer, const Position3D& cent
 
 	if (!startRef)
 	{
-		ERROR_MSG(fmt::format("NavMeshHandle::findRandomPointAroundCircle({1}): Could not find any nearby poly's ({0})\n", startRef, resPath));
+		WARNING_MSG(fmt::format("NavMeshHandle::findRandomPointAroundCircle({1}): Could not find any nearby poly's ({0})\n", startRef, resPath));
 		return NAV_ERROR_NEARESTPOLY;
 	}
 

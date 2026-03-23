@@ -1,4 +1,4 @@
-﻿namespace KBEngine
+namespace KBEngine
 {
   	 
 	using System; 
@@ -59,21 +59,22 @@
         // ------------------------------------logon相关------------------------------------
         /// <summary>
         /// Engine version mismatch.
-        /// <para> param1(string): clientVersion
-        /// <para> param2(string): serverVersion
+        /// <para> param1(string): clientVersion</para>
+        /// <para> param2(string): serverVersion</para>
         /// </summary>
         public const string onVersionNotMatch = "onVersionNotMatch";
 
         /// <summary>
         /// script version mismatch.
-        /// <para> param1(string): clientScriptVersion
-        /// <para> param2(string): serverScriptVersion
+        /// <para> param1(string): clientScriptVersion</para>
+        /// <para> param2(string): serverScriptVersion</para>
         /// </summary>
         public const string onScriptVersionNotMatch = "onScriptVersionNotMatch";
 
         /// <summary>
         /// Login failed.
         /// <para> param1(uint16): retcode. // server_errors</para>
+        /// <para> param2(bytes): serverdatas. // server_data</para>
         /// </summary>
         public const string onLoginFailed = "onLoginFailed";
 

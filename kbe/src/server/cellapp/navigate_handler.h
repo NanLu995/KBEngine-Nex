@@ -43,6 +43,7 @@ namespace KBEngine {
         void addToStream(KBEngine::MemoryStream& s);
         void createFromStream(KBEngine::MemoryStream& s);
 
+        virtual bool stepMoveOnceWithoutDelete();
         virtual bool update() override;
 
         void destroy() { isDestroyed_ = true; }
@@ -79,6 +80,8 @@ namespace KBEngine {
         float maxMoveDistance_ = 0.f;
 
         float lookAheadDistance_ = 2.0f;  // 每帧目标向前看的距离，可调
+
+        int retryCount_ = 0;
 
 
     private:
