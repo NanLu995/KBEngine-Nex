@@ -9,6 +9,7 @@
     4.支持浏览器本地存储（30s自动存储
 - [fix] 修复navigation补帧触发导致脱离生命周期出现的bug
 - [fix] c# sdk event中补全一些参数和注释 [Issue #125](https://github.com/KBEngineLab/KBEngine-Nex/issues/125)
+- [perf] KBEDebug.py升级，打印文件、行号，支持跳转 [Issue #124](https://github.com/KBEngineLab/KBEngine-Nex/issues/124)
 
 ## 2.7.3
 
