@@ -6,6 +6,7 @@
 #include "server/serverconfig.h"
 
 #include "client_lib/client_interface.h"
+#include <limits>
 
 namespace KBEngine{	
 
@@ -174,7 +175,8 @@ bool ClientSDKDownloader::loadSDKDatas()
 			return false;
 
 		// 必须kbcmd进程已经结束
-		SystemInfo::PROCESS_INFOS sysinfos = SystemInfo::getSingleton().getProcessInfo(pid_);
+		KBE_ASSERT(static_cast<uint64>(pid_) <= static_cast<uint64>(std::numeric_limits<uint32>::max()));
+		SystemInfo::PROCESS_INFOS sysinfos = SystemInfo::getSingleton().getProcessInfo(static_cast<uint32>(pid_));
 		if (!sysinfos.error)
 			return false;
 

@@ -1759,7 +1759,7 @@ void ServerConfig::updateInfos(bool isPrint, COMPONENT_TYPE componentType, COMPO
 	std::string infostr = "";
 
 	for (size_t i = 0; i < _dbmgrInfo.dbInterfaceInfos.size(); ++i)
-		_dbmgrInfo.dbInterfaceInfos[i].index = i;
+		_dbmgrInfo.dbInterfaceInfos[i].index = static_cast<int>(i);
 
 	if (g_dbmgr_addDefaultAddress)
 	{

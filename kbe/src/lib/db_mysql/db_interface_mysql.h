@@ -59,6 +59,8 @@ class DBException;
 class DBInterfaceMysql : public DBInterface
 {
 public:
+	using DBInterface::query;
+
 	DBInterfaceMysql(const char* name, std::string characterSet, std::string collation);
 	virtual ~DBInterfaceMysql();
 

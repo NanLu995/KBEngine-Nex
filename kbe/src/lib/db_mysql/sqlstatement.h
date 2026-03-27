@@ -42,7 +42,8 @@ public:
 		if(sqlstr_ == "")
 			return true;
 
-		bool ret = static_cast<DBInterfaceMysql*>(pdbi != NULL ? pdbi : pdbi_)->query(sqlstr_.c_str(), sqlstr_.size(), false);
+		DBInterface* pQueryDBI = (pdbi != NULL ? pdbi : pdbi_);
+		bool ret = pQueryDBI->query(sqlstr_.c_str(), sqlstr_.size(), false);
 
 		if(!ret)
 		{

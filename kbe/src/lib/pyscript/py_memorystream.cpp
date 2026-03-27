@@ -2,6 +2,7 @@
 
 #include "pickler.h"
 #include "py_memorystream.h"
+#include <limits>
 #include "py_gc.h"
 
 #ifndef CODE_INLINE
@@ -163,8 +164,12 @@ PyObject* PyMemoryStream::__unpickle__(PyObject* self, PyObject* args)
 	}
 
 	PyMemoryStream* pPyMemoryStream = new PyMemoryStream(pybytes);
-	pPyMemoryStream->stream().rpos(PyLong_AsSize_t(pyRpos));
-	pPyMemoryStream->stream().wpos(PyLong_AsSize_t(pyWpos));
+	size_t rpos = PyLong_AsSize_t(pyRpos);
+	size_t wpos = PyLong_AsSize_t(pyWpos);
+	KBE_ASSERT(rpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	KBE_ASSERT(wpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	pPyMemoryStream->stream().rpos(static_cast<int>(rpos));
+	pPyMemoryStream->stream().wpos(static_cast<int>(wpos));
 	return pPyMemoryStream;
 }
 
@@ -343,7 +348,14 @@ PyObject* PyMemoryStream::__py_append(PyObject* self, PyObject* args, PyObject* 
 			S_Return;
 		}
 
-		pyobj->stream().appendBlob(s, size);
+		if (size < 0 || static_cast<uint64>(size) > static_cast<uint64>(std::numeric_limits<ArraySize>::max()))
+		{
+			PyErr_Format(PyExc_OverflowError, "PyMemoryStream::append: unicode is too large!");
+			PyErr_PrintEx(0);
+			S_Return;
+		}
+
+		pyobj->stream().appendBlob(s, static_cast<ArraySize>(size));
 	}
 	else if(strcmp(type, "PYTHON") == 0 || strcmp(type, "PY_DICT") == 0
 		 || strcmp(type, "PY_TUPLE") == 0  || strcmp(type, "PY_LIST") == 0)
@@ -371,7 +383,14 @@ PyObject* PyMemoryStream::__py_append(PyObject* self, PyObject* args, PyObject* 
 				S_Return;
 			}
 
-			pyobj->stream().appendBlob(buffer, length);
+			if (length < 0 || static_cast<uint64>(length) > static_cast<uint64>(std::numeric_limits<ArraySize>::max()))
+			{
+				PyErr_Format(PyExc_OverflowError, "PyMemoryStream::append: blob is too large!");
+				PyErr_PrintEx(0);
+				S_Return;
+			}
+
+			pyobj->stream().appendBlob(buffer, static_cast<ArraySize>(length));
 		}
 		else
 		{

@@ -309,7 +309,7 @@ int NavMeshHandle::findRandomPointAroundCircle(int layer, const Position3D& cent
 			currpos.y = pt[1];
 			currpos.z = pt[2];
 
-			float src_len = sqrt(2) * squareSize;
+			float src_len = sqrtf(2.f) * squareSize;
 			float xx = centerPos.x - currpos.x;
 			
 			// 这里应该是zz，待测试，不改影响也不大，可能导致circle 半径校验略微偏差，Y 变化较大的地图中，随机点筛掉略多

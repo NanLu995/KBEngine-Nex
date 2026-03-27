@@ -4,6 +4,7 @@
 #include "network/channel.h"
 #include "network/message_handler.h"
 #include "network/network_stats.h"
+#include <limits>
 
 namespace KBEngine { 
 namespace Network
@@ -222,11 +223,12 @@ void PacketReader::writeFragmentMessage(FragmentDataTypes fragmentDatasFlag, Pac
 	KBE_ASSERT(pFragmentDatas_ == NULL);
 
 	size_t opsize = pPacket->length();
+	KBE_ASSERT(opsize <= std::numeric_limits<uint32>::max());
 	pFragmentDatasRemain_ = datasize - opsize;
 	pFragmentDatas_ = new uint8[opsize + pFragmentDatasRemain_ + 1];
 
 	fragmentDatasFlag_ = fragmentDatasFlag;
-	pFragmentDatasWpos_ = opsize;
+	pFragmentDatasWpos_ = static_cast<uint32>(opsize);
 
 	if(pPacket->length() > 0)
 	{
@@ -289,8 +291,9 @@ void PacketReader::mergeFragmentMessage(Packet* pPacket)
 	else
 	{
 		memcpy(pFragmentDatas_ + pFragmentDatasWpos_, pPacket->data(), opsize);
+		KBE_ASSERT(opsize <= std::numeric_limits<uint32>::max());
 		pFragmentDatasRemain_ -= opsize;
-		pFragmentDatasWpos_ += opsize;
+		pFragmentDatasWpos_ += static_cast<uint32>(opsize);
 		pPacket->rpos(pPacket->rpos() + opsize);
 
 		//DEBUG_MSG(fmt::format("PacketReader::mergeFragmentMessage({}): channel[{:p}], fragmentDatasFlag={}, remainsize={}, currMsgID={}, currMsgLen={}.\n",

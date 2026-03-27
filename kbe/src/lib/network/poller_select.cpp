@@ -3,6 +3,7 @@
 
 #include "poller_select.h"
 #include "helper/profile.h"
+#include <limits>
 
 namespace KBEngine { 
 
@@ -32,14 +33,26 @@ void SelectPoller::handleNotifications(int &countReady,
 #if KBE_PLATFORM == PLATFORM_WIN32
 	for (unsigned i=0; i < readFDs.fd_count; ++i)
 	{
-		int fd = readFDs.fd_array[ i ];
+		SOCKET sock = readFDs.fd_array[i];
+		if (sock > static_cast<SOCKET>(std::numeric_limits<int>::max()))
+		{
+			continue;
+		}
+
+		int fd = static_cast<int>(sock);
 		--countReady;
 		this->triggerRead(fd);
 	}
 
 	for (unsigned i=0; i < writeFDs.fd_count; ++i)
 	{
-		int fd = writeFDs.fd_array[ i ];
+		SOCKET sock = writeFDs.fd_array[i];
+		if (sock > static_cast<SOCKET>(std::numeric_limits<int>::max()))
+		{
+			continue;
+		}
+
+		int fd = static_cast<int>(sock);
 		--countReady;
 		this->triggerWrite(fd);
 	}

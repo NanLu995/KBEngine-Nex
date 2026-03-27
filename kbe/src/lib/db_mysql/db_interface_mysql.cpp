@@ -10,6 +10,14 @@
 #include "server/serverconfig.h"
 
 namespace KBEngine { 
+namespace
+{
+inline uint32 toUint32Size(size_t size)
+{
+	KBE_ASSERT(size <= static_cast<size_t>(std::numeric_limits<uint32>::max()));
+	return static_cast<uint32>(size);
+}
+}
 
 static KBEngine::thread::ThreadMutex _g_logMutex;
 static KBEUnordered_map< std::string, uint32 > g_querystatistics;
@@ -300,7 +308,7 @@ __RECONNECT:
 		kbe_snprintf(characterset_sql, MAX_BUF, "ALTER DATABASE CHARACTER SET %s COLLATE %s", 
 			characterSet_.c_str(), collation_.c_str());
 
-		query(&characterset_sql[0], strlen(characterset_sql), false);
+		query(&characterset_sql[0], toUint32Size(strlen(characterset_sql)), false);
 	}
 	catch (std::exception& e)
 	{
@@ -373,7 +381,7 @@ bool DBInterfaceMysql::checkEnvironment()
 bool DBInterfaceMysql::createDatabaseIfNotExist()
 {
 	std::string querycmd = fmt::format("create database {}", db_name_);
-	query(querycmd.c_str(), querycmd.size(), false);
+	query(querycmd.c_str(), toUint32Size(querycmd.size()), false);
 	return true;
 }
 
@@ -392,7 +400,7 @@ bool DBInterfaceMysql::checkErrors()
 	if (!pDBInfo->isPure)
 	{
 		std::string querycmd = fmt::format("SHOW TABLES LIKE \"" ENTITY_TABLE_PERFIX "_{}\"", DBUtil::accountScriptName());
-		if (!query(querycmd.c_str(), querycmd.size(), true))
+		if (!query(querycmd.c_str(), toUint32Size(querycmd.size()), true))
 		{
 			ERROR_MSG(fmt::format("DBInterfaceMysql::checkErrors: {}, query(dbInterface={}) error!\n", querycmd, name()));
 			return false;
@@ -415,7 +423,7 @@ bool DBInterfaceMysql::checkErrors()
 
 			try
 			{
-				query(querycmd.c_str(), querycmd.size(), false);
+				query(querycmd.c_str(), toUint32Size(querycmd.size()), false);
 			}
 			catch (...)
 			{
@@ -474,7 +482,7 @@ bool DBInterfaceMysql::dropEntityTableFromDB(const char* tableName)
 
 	char sql_str[SQL_BUF];
 	kbe_snprintf(sql_str, SQL_BUF, "Drop table if exists %s;", tableName);
-	return query(sql_str, strlen(sql_str));
+	return query(sql_str, toUint32Size(strlen(sql_str)));
 }
 
 //-------------------------------------------------------------------------------------
@@ -487,7 +495,7 @@ bool DBInterfaceMysql::dropEntityTableItemFromDB(const char* tableName, const ch
 
 	char sql_str[SQL_BUF];
 	kbe_snprintf(sql_str, SQL_BUF, "alter table %s drop column %s;", tableName, tableItemName);
-	return query(sql_str, strlen(sql_str));
+	return query(sql_str, toUint32Size(strlen(sql_str)));
 }
 
 //-------------------------------------------------------------------------------------
@@ -573,7 +581,7 @@ bool DBInterfaceMysql::write_query_result(MemoryStream * result)
 				{
 					if (arow[i] == NULL)
 					{
-						result->appendBlob("KBE_QUERY_DB_NULL", strlen("KBE_QUERY_DB_NULL"));
+						result->appendBlob("KBE_QUERY_DB_NULL", static_cast<ArraySize>(strlen("KBE_QUERY_DB_NULL")));
 					}
 					else
 					{
@@ -585,7 +593,8 @@ bool DBInterfaceMysql::write_query_result(MemoryStream * result)
 		catch (MemoryStreamWriteOverflow & e)
 		{
 			mysql_free_result(pResult);
-			result->wpos(wpos);
+			KBE_ASSERT(wpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+			result->wpos(static_cast<int>(wpos));
 
 			DBException e1(NULL);
 			e1.setError(fmt::format("DBException: {}, SQL({}) ", e.what(), lastquery_), 0);

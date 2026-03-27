@@ -15,6 +15,7 @@
 #include "pyscript/vector4.h"
 #include "pyscript/copy.h"
 #include "pyscript/py_memorystream.h"
+#include <limits>
 
 #ifndef CODE_INLINE
 #include "datatype.inl"
@@ -1137,7 +1138,13 @@ void UnicodeType::addToStream(MemoryStream* mstream, PyObject* pyValue)
 		return;
 	}
 
-	mstream->appendBlob(s, size);
+	if (size < 0 || static_cast<uint64>(size) > static_cast<uint64>(std::numeric_limits<ArraySize>::max()))
+	{
+		OUT_TYPE_ERROR("UNICODE");
+		return;
+	}
+
+	mstream->appendBlob(s, static_cast<ArraySize>(size));
 }
 
 //-------------------------------------------------------------------------------------

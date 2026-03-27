@@ -8,7 +8,14 @@
 #include <utility>
 #include <functional>
 #include <cctype>
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4244)
+#endif
 #include "utf8cpp/utf8.h"
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 #include "memorystream.h"
 
 #include <codecvt>
@@ -273,13 +280,15 @@ namespace strutil {
 
 	void wchar2char(const wchar_t* ts, MemoryStream* pOutStream)
 	{
-		int len = (int)((wcslen(ts) + 1) * sizeof(wchar_t));
+		size_t len = (wcslen(ts) + 1) * sizeof(wchar_t);
 		pOutStream->data_resize(pOutStream->wpos() + len);
 		size_t slen = wcstombs((char*)&pOutStream->data()[pOutStream->wpos()], ts, len);
 		
 		if((size_t)-1 != slen)
 		{
-			pOutStream->wpos(pOutStream->wpos() + slen + 1);
+			size_t newWpos = pOutStream->wpos() + slen + 1;
+			KBE_ASSERT(newWpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+			pOutStream->wpos(static_cast<int>(newWpos));
 			pOutStream->data()[pOutStream->wpos() - 1] = 0;
 		}
 	};

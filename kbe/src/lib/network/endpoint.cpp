@@ -757,7 +757,7 @@ bool EndPoint::setupSSL(int sslVersion, Packet* pPacket)
 		return false;
 	}
 
-	SSL_set_fd(sslHandle_, *this);
+	SSL_set_fd(sslHandle_, static_cast<int>(*this));
 
 	BIO_set_callback(SSL_get_rbio(sslHandle_), ssl_bio_callback);
 	BIO_set_callback_arg(SSL_get_rbio(sslHandle_), (char*)pPacket);

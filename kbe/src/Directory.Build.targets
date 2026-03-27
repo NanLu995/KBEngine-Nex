@@ -2,7 +2,7 @@
 <Project>
   <ItemDefinitionGroup>
     <ClCompile>
-      <!-- <AdditionalOptions>/FS %(AdditionalOptions)</AdditionalOptions> -->
+      <AdditionalOptions>/FS %(AdditionalOptions)</AdditionalOptions>
       <!-- <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel> -->
       <!-- <ExternalIncludePath>$(ExternalIncludePath);$(MSBuildThisFileDirectory)lib\dependencies;$(MSBuildThisFileDirectory)vcpkg_installed\x64-windows-static\x64-windows-static\include</ExternalIncludePath> -->
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_WINSOCK_DEPRECATED_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>

@@ -3,6 +3,7 @@
 #include "fixeddict.h"
 #include "datatypes.h"
 #include "pyscript/py_gc.h"
+#include <limits>
 
 namespace KBEngine{ 
 
@@ -265,7 +266,18 @@ void FixedDict::onInstallScript(PyObject* mod)
 //-------------------------------------------------------------------------------------
 int FixedDict::mp_length(PyObject* self)
 {
-	return PyDict_Size(static_cast<FixedDict*>(self)->pyDict_);
+	Py_ssize_t size = PyDict_Size(static_cast<FixedDict*>(self)->pyDict_);
+	if (size < 0)
+	{
+		return 0;
+	}
+
+	if (size > static_cast<Py_ssize_t>(std::numeric_limits<int>::max()))
+	{
+		return std::numeric_limits<int>::max();
+	}
+
+	return static_cast<int>(size);
 }
 
 //-------------------------------------------------------------------------------------
