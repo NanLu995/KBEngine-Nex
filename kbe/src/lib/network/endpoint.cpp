@@ -636,15 +636,29 @@ bool EndPoint::waitSend()
 //-------------------------------------------------------------------------------------
 void EndPoint::send(Bundle * pBundle)
 {
+#if KBE_PLATFORM == PLATFORM_WIN32
+#pragma warning(push)
+#pragma warning(disable:4267)
+#endif
 	//AUTO_SCOPED_PROFILE("sendBundle");
 	SEND_BUNDLE((*this), (*pBundle));
+#if KBE_PLATFORM == PLATFORM_WIN32
+#pragma warning(pop)
+#endif
 }
 
 //-------------------------------------------------------------------------------------
 void EndPoint::sendto(Bundle * pBundle, u_int16_t networkPort, u_int32_t networkAddr)
 {
+#if KBE_PLATFORM == PLATFORM_WIN32
+#pragma warning(push)
+#pragma warning(disable:4267)
+#endif
 	//AUTO_SCOPED_PROFILE("sendBundle");
 	SENDTO_BUNDLE((*this), networkAddr, networkPort, (*pBundle));
+#if KBE_PLATFORM == PLATFORM_WIN32
+#pragma warning(pop)
+#endif
 }
 
 //-------------------------------------------------------------------------------------

@@ -7,6 +7,7 @@
 #include "common/memorystream.h"
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
+#include <limits>
 
 namespace KBEngine 
 {
@@ -861,7 +862,8 @@ Request::Status Requests::perform(const std::string& url, const Request::Callbac
 	Network::Http::Request* r = new Network::Http::Request();
 	r->setURL(url);
 	r->setCallback(resultCallback);
-	r->setPostData(postData.data(), postData.size());
+	KBE_ASSERT(postData.size() <= static_cast<size_t>(std::numeric_limits<unsigned int>::max()));
+	r->setPostData(postData.data(), static_cast<unsigned int>(postData.size()));
 
 	if (headers.size() > 0)
 		r->setHeader(headers);

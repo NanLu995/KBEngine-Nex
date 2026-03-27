@@ -10,11 +10,20 @@
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
 #include "network/event_poller.h"
+#include <limits>
 
 
 namespace KBEngine { 
 namespace Network
 {
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+}
 //-------------------------------------------------------------------------------------
 BundleBroadcast::BundleBroadcast(NetworkInterface & networkInterface, 
 								   uint16 bindPort, uint32 recvWindowSize):
@@ -119,7 +128,7 @@ bool BundleBroadcast::broadcast(uint16 port)
 	this->finiMessage();
 	KBE_ASSERT(packets().size() == 1);
 
-	epBroadcast_.sendto(packets()[0]->data(), packets()[0]->length(), htons(port), Network::BROADCAST);
+	epBroadcast_.sendto(packets()[0]->data(), toIntSize(packets()[0]->length()), htons(port), Network::BROADCAST);
 
 	// 如果指定了地址池，则向所有地址发送消息
 	std::vector< std::string >::iterator addr_iter = machine_addresses_.begin();
@@ -136,7 +145,7 @@ bool BundleBroadcast::broadcast(uint16 port)
 
 		u_int32_t  uaddress;
 		Network::Address::string2ip((*addr_iter).c_str(), uaddress);
-		ep.sendto(packets()[0]->data(), packets()[0]->length(), htons(KBE_MACHINE_BROADCAST_SEND_PORT), uaddress);
+		ep.sendto(packets()[0]->data(), toIntSize(packets()[0]->length()), htons(KBE_MACHINE_BROADCAST_SEND_PORT), uaddress);
 	}
 
 	return true;

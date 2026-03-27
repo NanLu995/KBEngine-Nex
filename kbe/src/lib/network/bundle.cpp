@@ -13,11 +13,20 @@
 #endif
 
 #include "common/blowfish.h"
+#include <limits>
 
 
 namespace KBEngine { 
 namespace Network
 {
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+}
 
 //-------------------------------------------------------------------------------------
 static ObjectPool<Bundle> _g_objPool("Bundle");
@@ -426,7 +435,7 @@ void Bundle::debugCurrentMessages(MessageID currMsgID, const Network::MessageHan
 	if(pCurrPacket)
 	{
 		// 如果当前消息所有内容都在当前包中，直接输出内容即可
-		msglen -= pCurrPacket->length();
+		msglen -= toIntSize(pCurrPacket->length());
 		if(msglen <= 0)
 		{
 			pMemoryStream->append(pCurrPacket->data() + pCurrPacket->wpos() - currMsgLength, currMsgLength);
@@ -447,9 +456,9 @@ void Bundle::debugCurrentMessages(MessageID currMsgID, const Network::MessageHan
 					continue;
 
 				// 如果所有内容都在包中
-				if((int)pPacket->length() >= msglen)
+				if(toIntSize(pPacket->length()) >= msglen)
 				{
-					int wpos = pPacket->length() - msglen;
+					int wpos = toIntSize(pPacket->length()) - msglen;
 					pMemoryStream->append(pPacket->data() + wpos, msglen);
 					
 					for(size_t i = packets.size() - idx; i < packets.size(); ++i)
@@ -470,7 +479,7 @@ void Bundle::debugCurrentMessages(MessageID currMsgID, const Network::MessageHan
 				}
 				else
 				{
-					msglen -= pPacket->length();
+					msglen -= toIntSize(pPacket->length());
 				}
 			}
 		}
@@ -485,8 +494,11 @@ void Bundle::debugCurrentMessages(MessageID currMsgID, const Network::MessageHan
 
 	KBE_ASSERT(currMsgLength == pMemoryStream->length());
 	
-	TRACE_MESSAGE_PACKET(false, pMemoryStream, pCurrMsgHandler, pMemoryStream->length(),
+#pragma warning(push)
+#pragma warning(disable:4267)
+	TRACE_MESSAGE_PACKET(false, pMemoryStream, pCurrMsgHandler, toIntSize(pMemoryStream->length()),
 		(pChannel != NULL ? pChannel->c_str() : "None"), false);
+#pragma warning(pop)
 					
 	MemoryStream::reclaimPoolObject(pMemoryStream);
 }
@@ -498,13 +510,13 @@ bool Bundle::revokeMessage(int32 size)
 	{
 		if(size >= (int32)pCurrPacket_->wpos())
 		{
-			size -= pCurrPacket_->wpos();
+			size -= toIntSize(pCurrPacket_->wpos());
 			RECLAIM_PACKET(isTCPPacket_, pCurrPacket_);
 			pCurrPacket_ = NULL;
 		}
 		else
 		{
-			pCurrPacket_->wpos(pCurrPacket_->wpos() - size);
+			pCurrPacket_->wpos(toIntSize(pCurrPacket_->wpos() - size));
 			size = 0;
 		}
 	}
@@ -514,13 +526,13 @@ bool Bundle::revokeMessage(int32 size)
 		Network::Packet* pPacket = packets_.back();
 		if(pPacket->wpos() > (size_t)size)
 		{
-			pPacket->wpos(pPacket->wpos() - size);
+			pPacket->wpos(toIntSize(pPacket->wpos() - size));
 			size = 0;
 			break;
 		}
 		else
 		{
-			size -= pPacket->wpos();
+			size -= toIntSize(pPacket->wpos());
 			RECLAIM_PACKET(isTCPPacket_, pPacket);
 			packets_.pop_back();
 		}

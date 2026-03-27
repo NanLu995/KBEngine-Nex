@@ -9,10 +9,25 @@
 #include "network/tcp_packet.h"
 #include "network/network_interface.h"
 #include "network/packet_receiver.h"
+#include <limits>
 
 namespace KBEngine { 
 namespace Network
 {
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+
+inline int32 toInt32Size(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int32>::max()));
+	return static_cast<int32>(v);
+}
+}
 
 //-------------------------------------------------------------------------------------
 WebSocketPacketFilter::WebSocketPacketFilter(Channel* pChannel):
@@ -91,7 +106,7 @@ Reason WebSocketPacketFilter::send(Channel * pChannel, PacketSender& sender, Pac
 
 	websocket::WebSocketProtocol::makeFrame(frameType, pPacket, pRetTCPPacket);
 
-	int space = pPacket->length() - pRetTCPPacket->space();
+	int space = toIntSize(pPacket->length()) - toIntSize(pRetTCPPacket->space());
 	if(space > 0)
 	{
 		WARNING_MSG(fmt::format("WebSocketPacketFilter::send: no free space, buffer added:{}, total={}.\n",
@@ -129,7 +144,7 @@ Reason WebSocketPacketFilter::recv(Channel * pChannel, PacketReceiver & receiver
 
 				if (pFragmentDatasRemain_ > 0)
 				{
-					pPacket->rpos(rpos);
+					pPacket->rpos(toIntSize(rpos));
 					pTCPPacket_ = TCPPacket::createPoolObject(OBJECTPOOL_POINT);
 					pTCPPacket_->append(*(static_cast<MemoryStream*>(pPacket)));
 					pPacket->done();
@@ -137,7 +152,7 @@ Reason WebSocketPacketFilter::recv(Channel * pChannel, PacketReceiver & receiver
 				else
 				{
 					fragmentDatasFlag_ = FRAGMENT_MESSAGE_DATAS;
-					pFragmentDatasRemain_ = (int32)msg_payload_length_;
+					pFragmentDatasRemain_ = toInt32Size(msg_payload_length_);
 				}
 			}
 			else
@@ -151,13 +166,13 @@ Reason WebSocketPacketFilter::recv(Channel * pChannel, PacketReceiver & receiver
 					size_t wpos = pPacket->wpos();
 					size_t rpos = pPacket->rpos();
 
-					pPacket->wpos(rpos + pFragmentDatasRemain_);
+					pPacket->wpos(toIntSize(rpos + pFragmentDatasRemain_));
 
 					// 首先将需要的数据添加到pTCPPacket_
 					pTCPPacket_->append(*(static_cast<MemoryStream*>(pPacket)));
 
 					// 将写位置还原回去
-					pPacket->wpos(wpos);
+					pPacket->wpos(toIntSize(wpos));
 
 					// 丢弃已经读取的数据
 					pPacket->read_skip(pFragmentDatasRemain_);
@@ -170,10 +185,10 @@ Reason WebSocketPacketFilter::recv(Channel * pChannel, PacketReceiver & receiver
 					if (pFragmentDatasRemain_ > 0)
 					{
 						// 由于一次没有解析完， 我们回撤数据下一次再尝试解析
-						pTCPPacket_->rpos(buffer_rpos);
+						pTCPPacket_->rpos(toIntSize(buffer_rpos));
 
 						// 当前包如果还有数据并且大于等于我们需要的数据，则继续下一循环立即解析
-						if ((int32)pPacket->length() >= pFragmentDatasRemain_)
+						if (toInt32Size(pPacket->length()) >= pFragmentDatasRemain_)
 							continue;
 					}
 					else
@@ -186,14 +201,14 @@ Reason WebSocketPacketFilter::recv(Channel * pChannel, PacketReceiver & receiver
 						if (msg_payload_length_ > 0)
 						{
 							fragmentDatasFlag_ = FRAGMENT_MESSAGE_DATAS;
-							pFragmentDatasRemain_ = (int32)msg_payload_length_;
+							pFragmentDatasRemain_ = toInt32Size(msg_payload_length_);
 						}
 					}
 				}
 				else
 				{
 					pTCPPacket_->append(*(static_cast<MemoryStream*>(pPacket)));
-					pFragmentDatasRemain_ -= pPacket->length();
+					pFragmentDatasRemain_ -= toInt32Size(pPacket->length());
 
 					pPacket->done();
 				}
@@ -269,7 +284,7 @@ Reason WebSocketPacketFilter::recv(Channel * pChannel, PacketReceiver & receiver
 			if (pTCPPacket_ == NULL)
 				pTCPPacket_ = TCPPacket::createPoolObject(OBJECTPOOL_POINT);
 
-			if (pFragmentDatasRemain_ <= (int32)pPacket->length())
+			if (pFragmentDatasRemain_ <= toInt32Size(pPacket->length()))
 			{
 				pTCPPacket_->append(pPacket->data() + pPacket->rpos(), pFragmentDatasRemain_);
 				pPacket->read_skip((size_t)pFragmentDatasRemain_);
@@ -278,7 +293,7 @@ Reason WebSocketPacketFilter::recv(Channel * pChannel, PacketReceiver & receiver
 			else
 			{
 				pTCPPacket_->append(*(static_cast<MemoryStream*>(pPacket)));
-				pFragmentDatasRemain_ -= pPacket->length();
+				pFragmentDatasRemain_ -= toInt32Size(pPacket->length());
 				pPacket->done();
 			}
 
@@ -355,7 +370,7 @@ Reason WebSocketPacketFilter::onPing(Channel * pChannel, Packet* pPacket)
 		pPacket->read_skip((size_t)msg_payload_length_);
 	}
 
-	int sendSize = pPongPacket->length();
+	int sendSize = toIntSize(pPongPacket->length());
 
 	while (sendSize > 0)
 	{

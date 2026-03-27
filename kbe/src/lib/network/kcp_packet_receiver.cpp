@@ -14,10 +14,25 @@
 #include "network/network_interface.h"
 #include "network/event_poller.h"
 #include "network/error_reporter.h"
+#include <limits>
 
 namespace KBEngine { 
 namespace Network
 {
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+
+inline long toLongSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<long>::max()));
+	return static_cast<long>(v);
+}
+}
 
 //-------------------------------------------------------------------------------------
 static ObjectPool<KCPPacketReceiver> _g_objPool("KCPPacketReceiver");
@@ -95,7 +110,7 @@ Reason KCPPacketReceiver::processPacket(Channel* pChannel, Packet * pPacket)
 	{
 		pChannel->addKcpUpdate();
 
-		if (ikcp_input(pChannel->pKCP(), (const char*)pPacket->data(), pPacket->length()) < 0)
+		if (ikcp_input(pChannel->pKCP(), (const char*)pPacket->data(), toLongSize(pPacket->length())) < 0)
 		{
 			RECLAIM_PACKET(pPacket->isTCPPacket(), pPacket);
 			return REASON_CHANNEL_LOST;
@@ -106,7 +121,7 @@ Reason KCPPacketReceiver::processPacket(Channel* pChannel, Packet * pPacket)
 		while (true)
 		{
 			Packet* pRcvdUDPPacket = UDPPacket::createPoolObject(OBJECTPOOL_POINT);
-			int bytes_recvd = ikcp_recv(pChannel->pKCP(), (char*)pRcvdUDPPacket->data(), pRcvdUDPPacket->size());
+			int bytes_recvd = ikcp_recv(pChannel->pKCP(), (char*)pRcvdUDPPacket->data(), toIntSize(pRcvdUDPPacket->size()));
 			if (bytes_recvd < 0)
 			{
 				//WARNING_MSG(fmt::format("KCPPacketReceiver::processPacket(): recvd_bytes({}) <= 0! addr={}\n", bytes_recvd, pChannel->c_str()));

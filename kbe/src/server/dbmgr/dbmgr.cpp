@@ -26,6 +26,7 @@
 #include "baseappmgr/baseappmgr_interface.h"
 #include "cellappmgr/cellappmgr_interface.h"
 #include "loginapp/loginapp_interface.h"
+#include <limits>
 
 namespace KBEngine{
 
@@ -1178,7 +1179,8 @@ void Dbmgr::syncEntityStreamTemplate(Network::Channel* pChannel, KBEngine::Memor
 
 		KBE_ASSERT(pTable);
 
-		s.rpos(rpos);
+		KBE_ASSERT(rpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		s.rpos(static_cast<int>(rpos));
 		pTable->accountDefMemoryStream(s);
 	}
 

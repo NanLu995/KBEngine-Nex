@@ -22,6 +22,14 @@
 namespace KBEngine{
 namespace Network{
 namespace websocket{
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+}
 
 //-------------------------------------------------------------------------------------
 bool WebSocketProtocol::isWebSocketProtocol(MemoryStream* s)
@@ -183,7 +191,7 @@ bool WebSocketProtocol::handshake(Network::Channel* pChannel, MemoryStream* s)
 
 	Network::Bundle* pBundle = Network::Bundle::createPoolObject(OBJECTPOOL_POINT);
 	(*pBundle) << ackHandshake;
-	(*pBundle).pCurrPacket()->wpos((*pBundle).pCurrPacket()->wpos() - 1);
+	(*pBundle).pCurrPacket()->wpos(toIntSize((*pBundle).pCurrPacket()->wpos() - 1));
 	pChannel->send(pBundle);
 	return true;
 }

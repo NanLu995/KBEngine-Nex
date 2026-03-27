@@ -16,10 +16,19 @@
 #include "network/error_reporter.h"
 #include "network/tcp_packet.h"
 #include "network/udp_packet.h"
+#include <limits>
 
 namespace KBEngine { 
 namespace Network
 {
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+}
 
 //-------------------------------------------------------------------------------------
 static ObjectPool<TCPPacketSender> _g_objPool("TCPPacketSender");
@@ -199,7 +208,7 @@ Reason TCPPacketSender::processFilterPacket(Channel* pChannel, Packet * pPacket,
 	}
 
 	EndPoint* pEndpoint = pChannel->pEndPoint();
-	int len = pEndpoint->send(pPacket->data() + pPacket->sentSize, pPacket->length() - pPacket->sentSize);
+	int len = pEndpoint->send(pPacket->data() + pPacket->sentSize, toIntSize(pPacket->length() - pPacket->sentSize));
 
 	if(len > 0)
 	{

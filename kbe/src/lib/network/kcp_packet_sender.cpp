@@ -16,10 +16,25 @@
 #include "network/error_reporter.h"
 #include "network/tcp_packet.h"
 #include "network/udp_packet.h"
+#include <limits>
 
 namespace KBEngine { 
 namespace Network
 {
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+
+inline uint32 toUint32Size(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<uint32>::max()));
+	return static_cast<uint32>(v);
+}
+}
 
 //-------------------------------------------------------------------------------------
 static ObjectPool<KCPPacketSender> _g_objPool("KCPPacketSender");
@@ -90,7 +105,7 @@ Reason KCPPacketSender::processFilterPacket(Channel* pChannel, Packet * pPacket,
 
 
 		if (ikcp_waitsnd(pChannel->pKCP()) > (int)(pChannel->pKCP()->snd_wnd * 2)/* 发送队列超出发送窗口2倍则提示资源不足 */ || 
-			ikcp_send(pChannel->pKCP(), (const char*)pPacket->data(), pPacket->length()) < 0)
+			ikcp_send(pChannel->pKCP(), (const char*)pPacket->data(), toIntSize(pPacket->length())) < 0)
 		{
 			ERROR_MSG(fmt::format("KCPPacketSender::ikcp_send: send error! currPacketSize={}, ikcp_waitsnd={}, snd_wndsize={}\n", 
 				pPacket->length(), ikcp_waitsnd(pChannel->pKCP()), pChannel->pKCP()->snd_wnd));
@@ -98,12 +113,12 @@ Reason KCPPacketSender::processFilterPacket(Channel* pChannel, Packet * pPacket,
 			return REASON_RESOURCE_UNAVAILABLE;
 		}
 
-		pPacket->sentSize += pPacket->length();
+		pPacket->sentSize += toUint32Size(pPacket->length());
 	}
 	else
 	{
 		EndPoint* pEndpoint = pChannel->pEndPoint();
-		int retlen = pEndpoint->sendto((void*)(pPacket->data()), pPacket->length());
+		int retlen = pEndpoint->sendto((void*)(pPacket->data()), toIntSize(pPacket->length()));
 		bool sentCompleted = (retlen == (int)pPacket->length());
 
 		if (retlen > 0)
