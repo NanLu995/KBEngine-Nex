@@ -43,7 +43,7 @@ void TimersT< TIME_STAMP >::onCancel()
 template <class TIME_STAMP>
 void TimersT< TIME_STAMP >::clear(bool shouldCallCancel)
 {
-	int maxLoopCount = (int)timeQueue_.size();
+	int maxLoopCount = static_cast<int>(timeQueue_.size());
 
 	while (!timeQueue_.empty())
 	{

@@ -162,7 +162,7 @@ public:
 
 		while(true)
 		{
-			if(ifind >= (int)findComponentTypes.size() || g_isDestroyed)
+			if(ifind >= static_cast<int>(findComponentTypes.size()) || g_isDestroyed)
 			{
 				//INFO_MSG("Componentbridge::process: not found %s, try again...\n",
 				//	COMPONENT_NAME_EX(findComponentType));
@@ -486,7 +486,7 @@ void CguiconsoleDlg::historyCommandCheck()
 	if(m_historyCommandIndex < 0)
 		m_historyCommandIndex = m_historyCommand.size() - 1;
 
-	if(m_historyCommandIndex > (int)m_historyCommand.size() - 1)
+	if(m_historyCommandIndex > static_cast<int>(m_historyCommand.size()) - 1)
 		m_historyCommandIndex = 0; 
 }
 

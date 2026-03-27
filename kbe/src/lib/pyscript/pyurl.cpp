@@ -68,7 +68,7 @@ void PyUrl::onHttpCallback(bool success, const Network::Http::Request& pRequest,
 //-------------------------------------------------------------------------------------
 PyObject* PyUrl::__py_urlopen(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* pyCallback = NULL;
 	char* surl = NULL;
 	int ret = 0;

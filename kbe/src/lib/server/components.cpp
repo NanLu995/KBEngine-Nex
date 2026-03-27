@@ -399,7 +399,7 @@ int Components::connectComponent(COMPONENT_TYPE componentType, int32 uid, COMPON
 
 		if (pEndpoint->connect(pComponentInfos->pIntAddr->port, pComponentInfos->pIntAddr->ip) == -1)
 		{
-			int selgot = select((*pEndpoint) + 1, &frds, &fwds, NULL, &tv);
+			int selgot = select(static_cast<int>((*pEndpoint) + 1), &frds, &fwds, NULL, &tv);
 			if (selgot > 0)
 			{
 				if (FD_ISSET((*pEndpoint), &frds) || FD_ISSET((*pEndpoint), &fwds))
@@ -783,7 +783,7 @@ bool Components::updateComponentInfos(const Components::ComponentInfos* info)
 
 		if(epListen.connect(info->pIntAddr->port, info->pIntAddr->ip) == -1)
 		{
-			int selgot = select(epListen+1, &frds, &fwds, NULL, &tv);
+			int selgot = select(static_cast<int>(epListen + 1), &frds, &fwds, NULL, &tv);
 			if(selgot > 0)
 			{
 				break;
@@ -814,7 +814,7 @@ bool Components::updateComponentInfos(const Components::ComponentInfos* info)
 		(*pBundle).newMessage(BotsInterface::lookApp);
 	}
 
-	epListen.send(pBundle->pCurrPacket()->data(), pBundle->pCurrPacket()->wpos());
+	epListen.send(pBundle->pCurrPacket()->data(), static_cast<int>(pBundle->pCurrPacket()->wpos()));
 	Network::Bundle::reclaimPoolObject(pBundle);
 
 	fd_set	fds;
@@ -823,7 +823,7 @@ bool Components::updateComponentInfos(const Components::ComponentInfos* info)
 	FD_ZERO( &fds );
 	FD_SET((int)epListen, &fds);
 
-	int selgot = select(epListen+1, &fds, NULL, NULL, &tv);
+	int selgot = select(static_cast<int>(epListen + 1), &fds, NULL, NULL, &tv);
 	if(selgot == 0)
 	{
 		// 超时, 可能对方繁忙

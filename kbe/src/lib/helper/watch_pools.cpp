@@ -15,7 +15,7 @@ namespace KBEngine {
 //-------------------------------------------------------------------------------------
 int32 watchBundlePool_size()
 {
-	return (int)Network::Bundle::ObjPool().objects().size();
+	return static_cast<int>(Network::Bundle::ObjPool().objects().size());
 }
 
 int32 watchBundlePool_max()
@@ -49,7 +49,7 @@ uint32 watchBundlePool_bytes()
 //-------------------------------------------------------------------------------------
 int32 watchAddressPool_size()
 {
-	return (int)Network::Address::ObjPool().objects().size();
+	return static_cast<int>(Network::Address::ObjPool().objects().size());
 }
 
 int32 watchAddressPool_max()
@@ -83,7 +83,7 @@ uint32 watchAddressPool_bytes()
 //-------------------------------------------------------------------------------------
 int32 watchMemoryStreamPool_size()
 {
-	return (int)MemoryStream::ObjPool().objects().size();
+	return static_cast<int>(MemoryStream::ObjPool().objects().size());
 }
 
 int32 watchMemoryStreamPool_max()
@@ -117,7 +117,7 @@ uint32 watchMemoryStreamPool_bytes()
 //-------------------------------------------------------------------------------------
 int32 watchTCPPacketPool_size()
 {
-	return (int)Network::TCPPacket::ObjPool().objects().size();
+	return static_cast<int>(Network::TCPPacket::ObjPool().objects().size());
 }
 
 int32 watchTCPPacketPool_max()
@@ -151,7 +151,7 @@ uint32 watchTCPPacketPool_bytes()
 //-------------------------------------------------------------------------------------
 int32 watchTCPPacketReceiverPool_size()
 {
-	return (int)Network::TCPPacketReceiver::ObjPool().objects().size();
+	return static_cast<int>(Network::TCPPacketReceiver::ObjPool().objects().size());
 }
 
 int32 watchTCPPacketReceiverPool_max()
@@ -185,7 +185,7 @@ uint32 watchTCPPacketReceiverPool_bytes()
 //-------------------------------------------------------------------------------------
 int32 watchUDPPacketPool_size()
 {
-	return (int)Network::UDPPacket::ObjPool().objects().size();
+	return static_cast<int>(Network::UDPPacket::ObjPool().objects().size());
 }
 
 int32 watchUDPPacketPool_max()
@@ -219,7 +219,7 @@ uint32 watchUDPPacketPool_bytes()
 //-------------------------------------------------------------------------------------
 int32 watchUDPPacketReceiverPool_size()
 {
-	return (int)Network::UDPPacketReceiver::ObjPool().objects().size();
+	return static_cast<int>(Network::UDPPacketReceiver::ObjPool().objects().size());
 }
 
 int32 watchUDPPacketReceiverPool_max()
@@ -253,7 +253,7 @@ uint32 watchUDPPacketReceiverPool_bytes()
 //-------------------------------------------------------------------------------------
 int32 watchEndPointPool_size()
 {
-	return (int)Network::EndPoint::ObjPool().objects().size();
+	return static_cast<int>(Network::EndPoint::ObjPool().objects().size());
 }
 
 int32 watchEndPointPool_max()
@@ -287,7 +287,7 @@ uint32 watchEndPointPool_bytes()
 //-------------------------------------------------------------------------------------
 int32 watchChannelPool_size()
 {
-	return (int)Network::Channel::ObjPool().objects().size();
+	return static_cast<int>(Network::Channel::ObjPool().objects().size());
 }
 
 int32 watchChannelPool_max()

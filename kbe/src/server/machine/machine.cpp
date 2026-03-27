@@ -1030,7 +1030,7 @@ void Machine::stopserver(Network::Channel* pChannel, KBEngine::MemoryStream& s)
 			FD_ZERO( &fds );
 			FD_SET((int)ep1, &fds);
 
-			int selgot = select(ep1+1, &fds, NULL, NULL, &tv);
+			int selgot = select(static_cast<int>(ep1 + 1), &fds, NULL, NULL, &tv);
 			if(selgot == 0)
 			{
 				// 超时, 可能对方繁忙
@@ -1357,7 +1357,7 @@ void Machine::setflags(Network::Channel* pChannel, KBEngine::MemoryStream& s)
 			FD_ZERO(&fds);
 			FD_SET((int)ep1, &fds);
 
-			int selgot = select(ep1 + 1, &fds, NULL, NULL, &tv);
+			int selgot = select(static_cast<int>(ep1 + 1), &fds, NULL, NULL, &tv);
 			if (selgot == 0)
 			{
 				// 超时, 可能对方繁忙

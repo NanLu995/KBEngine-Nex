@@ -1084,9 +1084,9 @@ void EntityComponent::addToServerStream(MemoryStream* mstream, PyObject* pyValue
 	if (oldCount != count)
 	{
 		size_t wpos = mstream->wpos();
-		mstream->wpos(oldWpos);
+		mstream->wpos(static_cast<int>(oldWpos));
 		(*mstream) << count;
-		mstream->wpos(wpos);
+		mstream->wpos(static_cast<int>(wpos));
 	}
 }
 

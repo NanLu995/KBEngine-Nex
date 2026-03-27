@@ -46,7 +46,7 @@ public:
 	void socket(int type);
 	INLINE KBESOCKET socket() const;
 	
-	INLINE void setFileDescriptor(int fd);
+	INLINE void setFileDescriptor(KBESOCKET fd);
 
 	INLINE int joinMulticastGroup(u_int32_t networkAddr);
 	INLINE int quitMulticastGroup(u_int32_t networkAddr);

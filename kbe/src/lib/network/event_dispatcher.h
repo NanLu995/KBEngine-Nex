@@ -48,6 +48,12 @@ public:
 	bool deregisterReadFileDescriptor(int fd);
 	bool registerWriteFileDescriptor(int fd, OutputNotificationHandler * handler);
 	bool deregisterWriteFileDescriptor(int fd);
+#if KBE_PLATFORM == PLATFORM_WIN32
+	INLINE bool registerReadFileDescriptor(KBESOCKET fd, InputNotificationHandler * handler);
+	INLINE bool deregisterReadFileDescriptor(KBESOCKET fd);
+	INLINE bool registerWriteFileDescriptor(KBESOCKET fd, OutputNotificationHandler * handler);
+	INLINE bool deregisterWriteFileDescriptor(KBESOCKET fd);
+#endif
 
 	INLINE TimerHandle addTimer(int64 microseconds,
 					TimerHandler * handler, void* arg = NULL);

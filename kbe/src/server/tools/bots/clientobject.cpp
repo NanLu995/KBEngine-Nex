@@ -253,7 +253,7 @@ bool ClientObject::initLoginBaseapp()
 		pUdpEndpoint->setnonblocking(true);
 		pUdpEndpoint->setnodelay(true);
 
-		if (pUdpEndpoint->sendto((void*)Network::UDP_HELLO, strlen(Network::UDP_HELLO)) != -1)
+		if (pUdpEndpoint->sendto((void*)Network::UDP_HELLO, static_cast<int>(strlen(Network::UDP_HELLO))) != -1)
 		{
 			// 等待接收返回包
 			Network::UDPPacket* pHelloAckUDPPacket = Network::UDPPacket::createPoolObject(OBJECTPOOL_POINT);
@@ -268,7 +268,7 @@ bool ClientObject::initLoginBaseapp()
 			}
 
 			sockaddr_in remoteAddr;
-			int bytes_rcvd = pUdpEndpoint->recvfrom(pHelloAckUDPPacket->data(), pHelloAckUDPPacket->size(), remoteAddr);
+			int bytes_rcvd = pUdpEndpoint->recvfrom(pHelloAckUDPPacket->data(), static_cast<int>(pHelloAckUDPPacket->size()), remoteAddr);
 			if (bytes_rcvd > 0)
 			{
 				std::string helloAck, versionString;

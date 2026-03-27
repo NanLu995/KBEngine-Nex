@@ -63,7 +63,7 @@ Map::~Map()
 }
 
 //-------------------------------------------------------------------------------------
-int Map::mp_length(PyObject* self)
+Py_ssize_t Map::mp_length(PyObject* self)
 {
 	return PyDict_Size(static_cast<Map*>(self)->pyDict_);
 }

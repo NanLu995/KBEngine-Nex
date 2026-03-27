@@ -2451,7 +2451,7 @@ PyObject* ClientObjectBase::__py_GetSpaceData(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* ClientObjectBase::__py_getWatcher(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::getWatcher(): args[strpath] error!");
@@ -2590,7 +2590,7 @@ PyObject* ClientObjectBase::__py_getWatcher(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* ClientObjectBase::__py_getWatcherDir(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::getWatcherDir(): args[strpath] error!");
@@ -2610,9 +2610,9 @@ PyObject* ClientObjectBase::__py_getWatcherDir(PyObject* self, PyObject* args)
 	std::vector<std::string> vec;
 	WatcherPaths::root().dirPath(path, vec);
 
-	PyObject* pyTuple = PyTuple_New(vec.size());
+	PyObject* pyTuple = PyTuple_New(static_cast<Py_ssize_t>(vec.size()));
 	std::vector<std::string>::iterator iter = vec.begin();
-	int i = 0;
+	Py_ssize_t i = 0;
 	for(; iter != vec.end(); ++iter)
 	{
 		PyTuple_SET_ITEM(pyTuple, i++, PyUnicode_FromString((*iter).c_str()));

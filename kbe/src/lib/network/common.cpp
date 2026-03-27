@@ -164,7 +164,7 @@ bool kbe_poll(int fd)
 	FD_ZERO(&frds);
 	FD_SET(fd, &frds);
 
-	int selgot = select(fd + 1, &frds, NULL, NULL, &tv);
+	int selgot = select(static_cast<int>(fd + 1), &frds, NULL, NULL, &tv);
 	if (selgot <= 0)
 		return false;
 	else

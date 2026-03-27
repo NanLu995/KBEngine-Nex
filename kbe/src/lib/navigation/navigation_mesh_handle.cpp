@@ -152,7 +152,7 @@ int NavMeshHandle::findRandomPointAroundCircle(int layer, const Position3D& cent
 			}
 		}
 
-		return (int)points.size();
+		return static_cast<int>(points.size());
 	}
 
 	const float extents[3] = { 2.f, 4.f, 2.f };
@@ -191,7 +191,7 @@ int NavMeshHandle::findRandomPointAroundCircle(int layer, const Position3D& cent
 
 	if (polyCount == 0)
 	{
-		return (int)points.size();
+		return static_cast<int>(points.size());
 	}
 
 	float* allPolyAreas = new float[polyCount];
@@ -283,7 +283,7 @@ int NavMeshHandle::findRandomPointAroundCircle(int layer, const Position3D& cent
 		if (nOverlapPolyVerts <= 0)
 		{
 			delete[] allPolyAreas;
-			return (int)points.size();
+			return static_cast<int>(points.size());
 		}
 
 		const float s = frand();
@@ -297,7 +297,7 @@ int NavMeshHandle::findRandomPointAroundCircle(int layer, const Position3D& cent
 		if (dtStatusFailed(status))
 		{
 			delete[] allPolyAreas;
-			return (int)points.size();
+			return static_cast<int>(points.size());
 		}
 
 		pt[1] = h;
@@ -330,7 +330,7 @@ int NavMeshHandle::findRandomPointAroundCircle(int layer, const Position3D& cent
 
 	delete[] allPolyAreas;
 
-	return (int)points.size();
+	return static_cast<int>(points.size());
 }
 
 //-------------------------------------------------------------------------------------

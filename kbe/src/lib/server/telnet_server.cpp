@@ -177,7 +177,7 @@ int	TelnetServer::handleInputNotification(int fd)
 			INFO_MSG(fmt::format("TelnetServer::handleInputNotification: new handler({})!\n",
 				pNewEndPoint->c_str()));
 
-			handlers_[(*pNewEndPoint)].reset(pTelnetHandler);
+			handlers_[static_cast<int>((*pNewEndPoint))].reset(pTelnetHandler);
 
 			std::string s;
 
@@ -190,7 +190,7 @@ int	TelnetServer::handleInputNotification(int fd)
 				s = pTelnetHandler->getWelcome();
 			}
 
-			pNewEndPoint->send(s.c_str(), (int)s.size());
+			pNewEndPoint->send(s.c_str(), static_cast<int>(s.size()));
 		}
 	}
 

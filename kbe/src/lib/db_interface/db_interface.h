@@ -78,9 +78,14 @@ public:
 		查询表
 	*/
 	virtual bool query(const char* cmd, uint32 size, bool printlog = true, MemoryStream * result = NULL) = 0;
+	bool query(const char* cmd, size_t size, bool printlog = true, MemoryStream * result = NULL)
+	{
+		KBE_ASSERT(size <= std::numeric_limits<uint32>::max());
+		return query(cmd, static_cast<uint32>(size), printlog, result);
+	}
 	virtual bool query(const std::string& cmd, bool printlog = true, MemoryStream * result = NULL)
 	{
-		return query(cmd.c_str(), (uint32)cmd.size(), printlog, result);
+		return query(cmd.c_str(), cmd.size(), printlog, result);
 	}
 
 	/**

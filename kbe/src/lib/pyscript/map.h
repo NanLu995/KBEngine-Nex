@@ -40,7 +40,7 @@ public:
 	static int mp_ass_subscript(PyObject* self, 
 		PyObject* key, PyObject* value);
 
-	static int mp_length(PyObject* self);
+	static Py_ssize_t mp_length(PyObject* self);
 
 	static PyObject* mp_keyiter(PyObject* self);
 	static PyObject* mp_iternextkey(PyObject* iter);

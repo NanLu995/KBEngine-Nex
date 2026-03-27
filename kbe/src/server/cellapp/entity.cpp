@@ -308,7 +308,7 @@ void Entity::onDestroy(bool callScript)
 //-------------------------------------------------------------------------------------
 PyObject* Entity::__py_pyDestroyEntity(PyObject* self, PyObject* args, PyObject * kwargs)
 {
-	uint16 currargsSize = PyTuple_Size(args);
+	Py_ssize_t currargsSize = PyTuple_Size(args);
 	Entity* pobj = static_cast<Entity*>(self);
 
 	if(pobj->initing())
@@ -1152,7 +1152,7 @@ void Entity::backupCellData()
 		KBE_SHA1 sha;
 		uint32 digest[5];
 
-		sha.Input(s->data(), s->length());
+		sha.Input(s->data(), static_cast<unsigned int>(s->length()));
 		sha.Result(digest);
 
 		bool dataDirty = memcmp((void*)&persistentDigest_[0], (void*)&digest[0], sizeof(persistentDigest_)) != 0;
@@ -1689,7 +1689,7 @@ void Entity::cancelController(uint32 id)
 //-------------------------------------------------------------------------------------
 PyObject* Entity::__py_pyCancelController(PyObject* self, PyObject* args)
 {
-	uint16 currargsSize = PyTuple_Size(args);
+	Py_ssize_t currargsSize = PyTuple_Size(args);
 	Entity* pobj = static_cast<Entity*>(self);
 	
 	if(!pobj->isReal())
@@ -2512,7 +2512,7 @@ PyObject* Entity::pyGetWitnesses()
 	}
 
 	int i = 0;
-	PyObject * pTuple = PyTuple_New(entities.size());
+	PyObject * pTuple = PyTuple_New(static_cast<Py_ssize_t>(entities.size()));
 
 	std::vector<Entity*>::const_iterator iter = entities.begin();
 	for (; iter != entities.end(); iter++, i++)
@@ -2954,7 +2954,7 @@ uint32 Entity::moveToEntity(ENTITY_ID targetID, float velocity, float distance, 
 //-------------------------------------------------------------------------------------
 PyObject* Entity::__py_pyMoveToEntity(PyObject* self, PyObject* args)
 {
-	uint16 currargsSize = PyTuple_Size(args);
+	Py_ssize_t currargsSize = PyTuple_Size(args);
 	Entity* pobj = static_cast<Entity*>(self);
 
 	if (!pobj->isReal())
@@ -3250,7 +3250,7 @@ PyObject* Entity::__py_pyEntitiesInView(PyObject* self, PyObject* args)
 {
 	Entity* pobj = static_cast<Entity*>(self);
 
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if (argCount > 1)
 	{
 		PyErr_Format(PyExc_TypeError, "%s::entitiesInView(): args error!", pobj->scriptName());
@@ -3315,7 +3315,7 @@ PyObject* Entity::entitiesInView(bool pending)
 //-------------------------------------------------------------------------------------
 PyObject* Entity::__py_pyEntitiesInRange(PyObject* self, PyObject* args)
 {
-	uint16 currargsSize = PyTuple_Size(args);
+	Py_ssize_t currargsSize = PyTuple_Size(args);
 	Entity* pobj = static_cast<Entity*>(self);
 
 	if (!pobj->isReal())
@@ -4231,7 +4231,7 @@ void Entity::createControllersFromStream(KBEngine::MemoryStream& s)
 //-------------------------------------------------------------------------------------
 void Entity::addWitnessToStream(KBEngine::MemoryStream& s)
 {
-	uint32 size = witnesses_count_;
+	uint32 size = static_cast<uint32>(witnesses_count_);
 	s << size;
 
 	std::list<ENTITY_ID>::iterator iter = witnesses_.begin();
@@ -4404,7 +4404,7 @@ void Entity::onTimer(ScriptID timerID, int useraAgs)
 void Entity::addTimersToStream(KBEngine::MemoryStream& s)
 {
 	ScriptTimers::Map& map = scriptTimers_.map();
-	uint32 size = map.size();
+	uint32 size = static_cast<uint32>(map.size());
 	s << size;
 
 	ScriptTimers::Map::const_iterator iter = map.begin();
@@ -4418,7 +4418,7 @@ void Entity::addTimersToStream(KBEngine::MemoryStream& s)
 		void* pUser;
 
 		Cellapp::getSingleton().timers().getTimerInfo(iter->second, time, interval, pUser);
-		int32 userData = int32(uintptr(pUser));
+		int32 userData = static_cast<int32>(uintptr(pUser));
 		s << time << interval << userData;
 		++iter;
 	}
@@ -4454,13 +4454,13 @@ void Entity::addEventsToStream(KBEngine::MemoryStream& s)
 {
 	ENTITY_EVENTS& eventsMap = events();
 
-	int eventNameSize = eventsMap.size();
+	int eventNameSize = static_cast<int>(eventsMap.size());
 	s << eventNameSize;
 
 	ENTITY_EVENTS::const_iterator mapiter = eventsMap.begin();
 	for (; mapiter != eventsMap.end(); ++mapiter)
 	{
-		int eventSize = mapiter->second.size();
+		int eventSize = static_cast<int>(mapiter->second.size());
 		s << mapiter->first << eventSize;
 
 		std::vector<PyObjectPtr>::const_iterator vecIter = mapiter->second.begin();

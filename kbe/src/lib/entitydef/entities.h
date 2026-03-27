@@ -132,7 +132,7 @@ TEMPLATE_SCRIPT_INIT(template<typename T>, Entities<T>, Entities, 0, &Entities<T
 template<typename T>
 int Entities<T>::mp_length(PyObject * self)
 {
-	return (int)static_cast<Entities*>(self)->getEntities().size();
+	return static_cast<int>(static_cast<Entities*>(self)->getEntities().size());
 }
 	
 //-------------------------------------------------------------------------------------

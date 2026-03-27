@@ -630,7 +630,7 @@ bool EndPoint::waitSend()
 	FD_ZERO( &fds );
 	FD_SET(socket_, &fds);
 
-	return select(socket_+1, NULL, &fds, NULL, &tv) > 0;
+	return select(static_cast<int>(socket_ + 1), NULL, &fds, NULL, &tv) > 0;
 }
 
 //-------------------------------------------------------------------------------------
@@ -774,7 +774,7 @@ bool EndPoint::setupSSL(int sslVersion, Packet* pPacket)
 		{
 		case SSL_ERROR_WANT_READ:
 		{
-			int selgot = select((*this) + 1, &fds, NULL, NULL, &tv);
+			int selgot = select(static_cast<int>((*this) + 1), &fds, NULL, NULL, &tv);
 			if (selgot <= 0)
 			{
 				ERROR_MSG(fmt::format("EndPoint::setupSSL: SSL_accept(SSL_ERROR_WANT_READ): {}!\n", ERR_error_string(SSL_get_error(sslHandle_, -1), NULL)));
@@ -786,7 +786,7 @@ bool EndPoint::setupSSL(int sslVersion, Packet* pPacket)
 		}
 		case SSL_ERROR_WANT_WRITE:
 		{
-			int selgot = select((*this) + 1, NULL, &fds, NULL, &tv);
+			int selgot = select(static_cast<int>((*this) + 1), NULL, &fds, NULL, &tv);
 			if (selgot <= 0)
 			{
 				ERROR_MSG(fmt::format("EndPoint::setupSSL: SSL_accept(SSL_ERROR_WANT_WRITE): {}!\n", ERR_error_string(SSL_get_error(sslHandle_, -1), NULL)));

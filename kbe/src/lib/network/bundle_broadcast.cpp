@@ -163,7 +163,7 @@ bool BundleBroadcast::receive(MessageArgs* recvArgs, sockaddr_in* psin, int32 ti
 	{
 		FD_ZERO( &fds );
 		FD_SET((int)epListen_, &fds);
-		int selgot = select(epListen_+1, &fds, NULL, NULL, &tv);
+		int selgot = select(static_cast<int>(epListen_ + 1), &fds, NULL, NULL, &tv);
 
 		if (selgot == 0)
 		{

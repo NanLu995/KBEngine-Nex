@@ -295,11 +295,11 @@ PyObject* EntityCall::pyGetComponent(const std::string& componentName, bool all)
 	}
 	else
 	{
-		PyObject* pyObj = PyTuple_New(founds.size());
+			PyObject* pyObj = PyTuple_New(static_cast<Py_ssize_t>(founds.size()));
 
-		for (int i = 0; i < (int)founds.size(); ++i)
-		{
-			PyTuple_SetItem(pyObj, i, founds[i]);
+			for (Py_ssize_t i = 0; i < static_cast<Py_ssize_t>(founds.size()); ++i)
+			{
+				PyTuple_SetItem(pyObj, i, founds[static_cast<size_t>(i)]);
 		}
 
 		return pyObj;
@@ -311,7 +311,7 @@ PyObject* EntityCall::pyGetComponent(const std::string& componentName, bool all)
 //-------------------------------------------------------------------------------------
 PyObject* EntityCall::__py_pyGetComponent(PyObject* self, PyObject* args)
 {
-	uint16 currargsSize = (uint16)PyTuple_Size(args);
+	Py_ssize_t currargsSize = PyTuple_Size(args);
 	EntityCall* pobj = static_cast<EntityCall*>(self);
 
 	if (currargsSize == 0 || currargsSize > 2)

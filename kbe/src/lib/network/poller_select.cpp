@@ -97,7 +97,7 @@ int SelectPoller::processPendingEvents(double maxWait)
 	else
 #endif
 	{
-		countReady = select(fdLargest_+1, &readFDs,
+		countReady = select(static_cast<int>(fdLargest_ + 1), &readFDs,
 				fdWriteCount_ ? &writeFDs : NULL, NULL, &nextTimeout);
 	}
 

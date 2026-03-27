@@ -298,7 +298,7 @@ void Interfaces::onRegisterNewApp(Network::Channel* pChannel, int32 uid, std::st
 //-------------------------------------------------------------------------------------
 PyObject* Interfaces::__py_executeRawDatabaseCommand(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* pycallback = NULL;
 	PyObject* pyDBInterfaceName = NULL;
 	int ret = 0;

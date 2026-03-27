@@ -91,7 +91,7 @@ PyObject* ScriptStdOut::__py_write(PyObject* self, PyObject *args)
 		return NULL;
 	}
 
-	static_cast<ScriptStdErr*>(self)->pScriptStdOutErr()->info_msg(sdata, size);
+	static_cast<ScriptStdErr*>(self)->pScriptStdOutErr()->info_msg(sdata, static_cast<uint32>(size));
 	S_Return;
 }
 

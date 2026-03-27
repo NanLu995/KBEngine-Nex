@@ -300,7 +300,7 @@ int NavTileHandle::findRandomPointAroundCircle(int layer, const Position3D& cent
 		points.push_back(currpos);
 	}
 
-	return (int)points.size();
+	return static_cast<int>(points.size());
 }
 
 //-------------------------------------------------------------------------------------

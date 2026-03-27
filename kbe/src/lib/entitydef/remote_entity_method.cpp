@@ -78,7 +78,7 @@ PyObject* RemoteEntityMethod::tp_call(PyObject* self, PyObject* args,
 		entityCall->newCall((*pSendBundle));
 
 		if(mstream->wpos() > 0)
-			(*pSendBundle).append(mstream->data(), mstream->wpos());
+			(*pSendBundle).append(mstream->data(), static_cast<int>(mstream->wpos()));
 
 		MemoryStream::reclaimPoolObject(mstream);
 		entityCall->sendCall(pSendBundle);

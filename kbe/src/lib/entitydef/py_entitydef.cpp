@@ -3058,7 +3058,7 @@ bool initializeWatcher()
 //-------------------------------------------------------------------------------------
 bool addToStream(MemoryStream* pMemoryStream)
 {
-	int size = DefContext::allScriptDefContextMaps.size();
+	int size = static_cast<int>(DefContext::allScriptDefContextMaps.size());
 	(*pMemoryStream) << size;
 
 	DefContext::DEF_CONTEXT_MAP::iterator iter = DefContext::allScriptDefContextMaps.begin();

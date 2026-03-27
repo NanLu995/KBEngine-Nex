@@ -1109,7 +1109,7 @@ bool Channel::handshake(Packet* pPacket)
 			{
 				UDPPacket* pHelloAckUDPPacket = UDPPacket::createPoolObject(OBJECTPOOL_POINT);
 				(*pHelloAckUDPPacket) << Network::UDP_HELLO_ACK << KBEVersion::versionString() << (uint32)id();
-				pEndPoint()->sendto(pHelloAckUDPPacket->data(), pHelloAckUDPPacket->length());
+				pEndPoint()->sendto(pHelloAckUDPPacket->data(), static_cast<int>(pHelloAckUDPPacket->length()));
 				UDPPacket::reclaimPoolObject(pHelloAckUDPPacket);
 
 				if (!pPacketReader_ || pPacketReader_->type() != PacketReader::PACKET_READER_TYPE_KCP)

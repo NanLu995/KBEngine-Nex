@@ -140,7 +140,7 @@ bool IDComponentQuerier::broadcast(uint16 port /*= 0*/)
 	this->finiMessage();
 	KBE_ASSERT(packets().size() == 1);
 
-	epBroadcast_.sendto(packets()[0]->data(), packets()[0]->length(), htons(port), Network::BROADCAST);
+	epBroadcast_.sendto(packets()[0]->data(), static_cast<int>(packets()[0]->length()), htons(port), Network::BROADCAST);
 	clear(true);
 	return true;
 }
@@ -166,7 +166,7 @@ bool IDComponentQuerier::receive(Network::MessageArgs* recvArgs, sockaddr_in* ps
 	{
 		FD_ZERO(&fds);
 		FD_SET((int)epListen_, &fds);
-		int selgot = select(epListen_ + 1, &fds, NULL, NULL, &tv);
+		int selgot = select(static_cast<int>(epListen_ + 1), &fds, NULL, NULL, &tv);
 
 		if (selgot == 0)
 		{

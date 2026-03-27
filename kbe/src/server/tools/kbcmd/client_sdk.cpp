@@ -127,8 +127,8 @@ bool ClientSDK::saveFile(bool overwrite)
 			return false;
 		}
 
-		int written = fwrite(sourcefileBody_.c_str(), 1, sourcefileBody_.size(), fp);
-		if (written != (int)sourcefileBody_.size())
+		size_t written = fwrite(sourcefileBody_.c_str(), 1, sourcefileBody_.size(), fp);
+		if (written != sourcefileBody_.size())
 		{
 			ERROR_MSG(fmt::format("ClientSDK::saveFile(): fwrite error! {}\n",
 				path));
@@ -171,8 +171,8 @@ bool ClientSDK::saveFile(bool overwrite)
 			return false;
 		}
 
-		int written = fwrite(headerfileBody_.c_str(), 1, headerfileBody_.size(), fp);
-		if (written != (int)headerfileBody_.size())
+		size_t written = fwrite(headerfileBody_.c_str(), 1, headerfileBody_.size(), fp);
+		if (written != headerfileBody_.size())
 		{
 			ERROR_MSG(fmt::format("ClientSDK::saveFile(): fwrite error! {}\n",
 				path));

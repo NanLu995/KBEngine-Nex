@@ -1345,7 +1345,7 @@ void Entity::onCellWriteToDBCompleted(CALLBACK_ID callbackID, int8 shouldAutoLoa
 	KBE_SHA1 sha;
 	uint32 digest[5];
 
-	sha.Input(s->data(), s->length());
+	sha.Input(s->data(), static_cast<unsigned int>(s->length()));
 	sha.Result(digest);
 
 	// 检查数据是否有变化，有变化则将数据备份并且记录数据hash，没变化什么也不做

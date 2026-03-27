@@ -346,7 +346,7 @@ Network::Channel* Bots::findChannelByEntityCall(EntityCallAbstract& entityCall)
 //-------------------------------------------------------------------------------------
 PyObject* Bots::tryGetEntity(COMPONENT_ID componentID, ENTITY_ID eid)
 {
-	ClientObject* pClient = findClientByAppID(componentID);
+	ClientObject* pClient = findClientByAppID(static_cast<int32>(componentID));
 
 	if (pClient)
 		return pClient->tryGetEntity(componentID, eid);
@@ -428,7 +428,7 @@ PyObject* Bots::__py_addBots(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------	
 PyObject* Bots::__py_setScriptLogType(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::scriptLogType(): args error!");

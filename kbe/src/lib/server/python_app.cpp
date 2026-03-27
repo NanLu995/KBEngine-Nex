@@ -369,7 +369,7 @@ PyObject* PythonApp::__py_getAppPublish(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_setScriptLogType(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::scriptLogType(): args error!");
@@ -393,7 +393,7 @@ PyObject* PythonApp::__py_setScriptLogType(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_getResFullPath(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::getResFullPath(): args error!");
@@ -420,7 +420,7 @@ PyObject* PythonApp::__py_getResFullPath(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_hasRes(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::hasRes(): args error!");
@@ -443,7 +443,7 @@ PyObject* PythonApp::__py_hasRes(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_kbeOpen(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 2)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::open(): args error!");
@@ -484,7 +484,7 @@ PyObject* PythonApp::__py_kbeOpen(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_matchPath(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::matchPath(): args error!");
@@ -508,7 +508,7 @@ PyObject* PythonApp::__py_matchPath(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_listPathRes(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount < 1 || argCount > 2)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::listPathRes(): args[path, pathargs=\'*.*\'] error!");
@@ -621,7 +621,7 @@ PyObject* PythonApp::__py_listPathRes(PyObject* self, PyObject* args)
 
 	std::vector<std::wstring> results;
 	Resmgr::getSingleton().listPathRes(respath, wExtendName, results);
-	PyObject* pyresults = PyTuple_New(results.size());
+	PyObject* pyresults = PyTuple_New(static_cast<Py_ssize_t>(results.size()));
 
 	std::vector<std::wstring>::iterator iter = results.begin();
 	int i = 0;

@@ -8,7 +8,7 @@ namespace KBEngine {
 
 int32 watchWitnessPool_size()
 {
-	return (int)Witness::ObjPool().objects().size();
+	return static_cast<int>(Witness::ObjPool().objects().size());
 }
 
 int32 watchWitnessPool_max()
@@ -42,7 +42,7 @@ uint32 watchWitnessPool_bytes()
 //-------------------------------------------------------------------------------------
 int32 watchEntityRefPool_size()
 {
-	return (int)EntityRef::ObjPool().objects().size();
+	return static_cast<int>(EntityRef::ObjPool().objects().size());
 }
 
 int32 watchEntityRefPool_max()

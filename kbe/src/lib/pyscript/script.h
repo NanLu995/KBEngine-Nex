@@ -53,9 +53,9 @@ PyObject * PyTuple_FromStringVector(const std::vector< std::string > & v);
 template<class T>
 PyObject * PyTuple_FromIntVector(const std::vector< T > & v)
 {
-	int sz = v.size();
+	Py_ssize_t sz = static_cast<Py_ssize_t>(v.size());
 	PyObject * t = PyTuple_New( sz );
-	for (int i = 0; i < sz; ++i)
+	for (Py_ssize_t i = 0; i < sz; ++i)
 	{
 		PyTuple_SetItem( t, i, PyLong_FromLong( v[i] ) );
 	}
@@ -66,9 +66,9 @@ PyObject * PyTuple_FromIntVector(const std::vector< T > & v)
 template<>
 inline PyObject * PyTuple_FromIntVector<int64>(const std::vector< int64 > & v)
 {
-	int sz = (int)v.size();
+	Py_ssize_t sz = static_cast<Py_ssize_t>(v.size());
 	PyObject * t = PyTuple_New( sz );
-	for (int i = 0; i < sz; ++i)
+	for (Py_ssize_t i = 0; i < sz; ++i)
 	{
 		PyTuple_SetItem( t, i, PyLong_FromLongLong( v[i] ) );
 	}
@@ -79,9 +79,9 @@ inline PyObject * PyTuple_FromIntVector<int64>(const std::vector< int64 > & v)
 template<>
 inline PyObject * PyTuple_FromIntVector<uint64>(const std::vector< uint64 > & v)
 {
-	int sz = (int)v.size();
+	Py_ssize_t sz = static_cast<Py_ssize_t>(v.size());
 	PyObject * t = PyTuple_New( sz );
-	for (int i = 0; i < sz; ++i)
+	for (Py_ssize_t i = 0; i < sz; ++i)
 	{
 		PyTuple_SetItem( t, i, PyLong_FromUnsignedLongLong( v[i] ) );
 	}

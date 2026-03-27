@@ -102,7 +102,7 @@ void PendingLoginMgr::removeNextTick(std::string& accountName)
 
 		// 下一tick处理时就超时了
 		TimeStamp curr = timestamp();
-		infos->lastProcessTime = curr - OP_TIME_OUT_MAX - 1;
+		infos->lastProcessTime = curr - static_cast<TimeStamp>(120 * stampsPerSecond()) - 1;
 	}
 }
 

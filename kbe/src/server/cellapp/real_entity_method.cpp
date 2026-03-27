@@ -90,7 +90,7 @@ PyObject* RealEntityMethod::callmethod(PyObject* args, PyObject* kwds)
 		(*pForwardBundle) << ghostEntityID_;
 
 		if(mstream->wpos() > 0)
-			(*pForwardBundle).append(mstream->data(), mstream->wpos());
+			(*pForwardBundle).append(mstream->data(), static_cast<int>(mstream->wpos()));
 
 		if(Network::g_trace_packet > 0)
 		{

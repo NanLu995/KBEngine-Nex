@@ -79,7 +79,7 @@ INLINE KBESOCKET EndPoint::socket() const
 	return socket_;
 }
 
-INLINE void EndPoint::setFileDescriptor(int fd)
+INLINE void EndPoint::setFileDescriptor(KBESOCKET fd)
 {
 	socket_ = fd;
 }

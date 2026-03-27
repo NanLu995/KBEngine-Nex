@@ -1017,7 +1017,7 @@ Entity* Baseapp::onCreateEntity(PyObject* pyEntity, ScriptDefModule* sm, ENTITY_
 //-------------------------------------------------------------------------------------
 PyObject* Baseapp::__py_createEntity(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* params = NULL;
 	char* entityType = NULL;
 	int ret = 0;
@@ -1044,7 +1044,7 @@ PyObject* Baseapp::__py_createEntity(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* Baseapp::__py_createEntityAnywhere(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* params = NULL, *pyCallback = NULL;
 	char* entityType = NULL;
 	int ret = 0;
@@ -1086,7 +1086,7 @@ PyObject* Baseapp::__py_createEntityAnywhere(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* Baseapp::__py_createEntityRemotely(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* params = NULL, *pyCallback = NULL, *pyEntityCall = NULL;
 	char* entityType = NULL;
 	int ret = 0;
@@ -1146,7 +1146,7 @@ PyObject* Baseapp::__py_createEntityRemotely(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* Baseapp::__py_createEntityFromDBID(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* pyCallback = NULL;
 	const char* entityType = NULL;
 	int ret = 0;
@@ -1434,7 +1434,7 @@ void Baseapp::onCreateEntityFromDBIDCallback(Network::Channel* pChannel, KBEngin
 
 		KBE_SHA1 sha;
 		uint32 digest[5];
-		sha.Input(s.data(), s.length());
+		sha.Input(s.data(), static_cast<unsigned int>(s.length()));
 		sha.Result(digest);
 		static_cast<Entity*>(e)->setDirty((uint32*)&digest[0]);
 	}
@@ -1485,7 +1485,7 @@ void Baseapp::onCreateEntityFromDBIDCallback(Network::Channel* pChannel, KBEngin
 //-------------------------------------------------------------------------------------
 PyObject* Baseapp::__py_createEntityAnywhereFromDBID(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* pyCallback = NULL;
 	const char* entityType = NULL;
 	int ret = 0;
@@ -1880,7 +1880,7 @@ void Baseapp::createEntityAnywhereFromDBIDOtherBaseapp(Network::Channel* pChanne
 
 		KBE_SHA1 sha;
 		uint32 digest[5];
-		sha.Input(s.data(), s.length());
+		sha.Input(s.data(), static_cast<unsigned int>(s.length()));
 		sha.Result(digest);
 		static_cast<Entity*>(e)->setDirty((uint32*)&digest[0]);
 	}
@@ -1998,7 +1998,7 @@ void Baseapp::onCreateEntityAnywhereFromDBIDOtherBaseappCallback(Network::Channe
 //-------------------------------------------------------------------------------------
 PyObject* Baseapp::__py_createEntityRemotelyFromDBID(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* pyCallback = NULL, *pyEntityCall = NULL;
 	const char* entityType = NULL;
 	int ret = 0;
@@ -2363,7 +2363,7 @@ void Baseapp::createEntityRemotelyFromDBIDOtherBaseapp(Network::Channel* pChanne
 
 		KBE_SHA1 sha;
 		uint32 digest[5];
-		sha.Input(s.data(), s.length());
+		sha.Input(s.data(), static_cast<unsigned int>(s.length()));
 		sha.Result(digest);
 		static_cast<Entity*>(e)->setDirty((uint32*)&digest[0]);
 	}
@@ -3233,7 +3233,7 @@ bool Baseapp::createClientProxies(Proxy* pEntity, bool reload)
 //-------------------------------------------------------------------------------------
 PyObject* Baseapp::__py_executeRawDatabaseCommand(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* pycallback = NULL;
 	PyObject* pyDBInterfaceName = NULL;
 	int ret = 0;
@@ -4209,7 +4209,7 @@ void Baseapp::onQueryAccountCBFromDbmgr(Network::Channel* pChannel, KBEngine::Me
 
 	KBE_SHA1 sha;
 	uint32 digest[5];
-	sha.Input(s.data(), s.length());
+	sha.Input(s.data(), static_cast<unsigned int>(s.length()));
 	sha.Result(digest);
 	pEntity->setDirty((uint32*)&digest[0]);
 
@@ -4367,14 +4367,14 @@ void Baseapp::forwardMessageToClientFromCellapp(Network::Channel* pChannel,
 	
 	static Network::MessageHandler* pMessageHandler = NULL;
 
-	int rpos = s.rpos();
+	size_t rpos = s.rpos();
 	Network::MessageID fmsgid = 0;
 	s >> fmsgid;
 
 	if (!pMessageHandler || pMessageHandler->msgID != fmsgid)
 		pMessageHandler = ClientInterface::messageHandlers.find(fmsgid);
 
-	s.rpos(rpos);
+	s.rpos(static_cast<int>(rpos));
 		
 	if (!pClientChannel || pBufferedSendToClientMessages)
 		pSendBundle = Network::Bundle::createPoolObject(OBJECTPOOL_POINT);
@@ -5153,7 +5153,7 @@ void Baseapp::importClientEntityDef(Network::Channel* pChannel)
 PyObject* Baseapp::__py_reloadScript(PyObject* self, PyObject* args)
 {
 	bool fullReload = true;
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount == 1)
 	{
 		if(!PyArg_ParseTuple(args, "b", &fullReload))
@@ -5212,7 +5212,7 @@ PyObject* Baseapp::__py_address(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* Baseapp::__py_deleteEntityByDBID(PyObject* self, PyObject* args)
 {
-	uint16 currargsSize = (uint16)PyTuple_Size(args);
+	Py_ssize_t currargsSize = PyTuple_Size(args);
 	if (currargsSize < 3 || currargsSize > 4)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::deleteEntityByDBID: args != (entityType, dbID, pycallback, dbInterfaceName)!");
@@ -5384,7 +5384,7 @@ void Baseapp::deleteEntityByDBIDCB(Network::Channel* pChannel, KBEngine::MemoryS
 //-------------------------------------------------------------------------------------
 PyObject* Baseapp::__py_lookUpEntityByDBID(PyObject* self, PyObject* args)
 {
-	uint16 currargsSize = (uint16)PyTuple_Size(args);
+	Py_ssize_t currargsSize = PyTuple_Size(args);
 	if (currargsSize < 3 || currargsSize > 4)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::lookUpEntityByDBID: args != (entityType, dbID, pycallback, dbInterfaceName)!");

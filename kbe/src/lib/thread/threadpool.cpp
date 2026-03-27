@@ -172,7 +172,7 @@ void ThreadPool::destroy()
 		std::string taskaddrs = "";
 		THREAD_MUTEX_LOCK(threadStateList_mutex_);
 
-		int count = (int)allThreadList_.size();
+		int count = static_cast<int>(allThreadList_.size());
 		std::list<TPThread*>::iterator itr = allThreadList_.begin();
 		for(; itr != allThreadList_.end(); ++itr)
 		{

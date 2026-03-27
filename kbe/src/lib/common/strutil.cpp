@@ -232,7 +232,7 @@ namespace strutil {
 	{
 		if (delim.empty()) {
 			out_result.push_back(s);
-			return out_result.size();
+			return static_cast<int>(out_result.size());
 		}
 
 		std::string::const_iterator substart = s.begin(), subend;
@@ -249,7 +249,7 @@ namespace strutil {
 			substart = subend + delim.size();
 		}
 
-		return out_result.size();
+		return static_cast<int>(out_result.size());
 	}
 
 	char* wchar2char(const wchar_t* ts, size_t* outlen)
@@ -425,7 +425,7 @@ namespace strutil {
 			return utf8::distance(utf8str.c_str(), 
 				utf8str.c_str() + utf8str.size());
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			utf8str = "";
 			return 0;
@@ -452,7 +452,7 @@ namespace strutil {
 
 			utf8str.resize(oend - (&utf8str[0]));
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			utf8str = "";
 		}
@@ -477,7 +477,7 @@ namespace strutil {
 			utf8::utf8to16(utf8str, utf8str + csize, wstr);
 			wstr[len] = L'\0';
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			if (wsize > 0)
 				wstr[0] = L'\0';
@@ -500,7 +500,7 @@ namespace strutil {
 				utf8::utf8to16(utf8str.c_str(), 
 				utf8str.c_str() + utf8str.size(), &wstr[0]);
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			wstr = L"";
 			return false;
@@ -520,7 +520,7 @@ namespace strutil {
 			utf8str2.resize(oend - (&utf8str2[0]));             // remove unused tail
 			utf8str = utf8str2;
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			utf8str = "";
 			return false;
@@ -542,7 +542,7 @@ namespace strutil {
 			utf8str2.resize(oend - (&utf8str2[0]));             // remove unused tail
 			utf8str = utf8str2;
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			utf8str = "";
 			return false;
