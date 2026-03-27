@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <!-- <AdditionalOptions>/FS %(AdditionalOptions)</AdditionalOptions> -->
+      <!-- <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel> -->
+      <!-- <ExternalIncludePath>$(ExternalIncludePath);$(MSBuildThisFileDirectory)lib\dependencies;$(MSBuildThisFileDirectory)vcpkg_installed\x64-windows-static\x64-windows-static\include</ExternalIncludePath> -->
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_WINSOCK_DEPRECATED_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <PropertyGroup>
+    <_IsDependenciesProject>$([System.String]::Copy('$(MSBuildProjectDirectory)').ToLower().Contains('\dependencies\'))</_IsDependenciesProject>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup Condition="'$(_IsDependenciesProject)' == 'True'">
+    <ClCompile>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <DisableSpecificWarnings>4244;4267;4302;4311;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Update="..\dependencies\**\*.c">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <DisableSpecificWarnings>4244;4267;4302;4311;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Update="..\dependencies\**\*.cc">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <DisableSpecificWarnings>4244;4267;4302;4311;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Update="..\dependencies\**\*.cpp">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <DisableSpecificWarnings>4244;4267;4302;4311;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Update="..\dependencies\**\*.cxx">
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
+      <DisableSpecificWarnings>4244;4267;4302;4311;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+    </ClCompile>
+  </ItemGroup>
+</Project>

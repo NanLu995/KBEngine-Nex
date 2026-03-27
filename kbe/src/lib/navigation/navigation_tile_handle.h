@@ -6,7 +6,14 @@
 #include "navigation/navigation_handle.h"
 
 #include "stlastar.h"
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4244 4267 4302 4311)
+#endif
 #include "tmxparser/Tmx.h"
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 namespace KBEngine{
 
