@@ -42,7 +42,9 @@ target_compile_definitions(kbcmd PUBLIC  LOG4CXX_STATIC)
 
 # ---------------- Python ----------------
 target_link_libraries(kbcmd PRIVATE python_interface)
-target_link_options(kbcmd PRIVATE -Wl,-export-dynamic)
+if(NOT APPLE)
+    target_link_options(kbcmd PRIVATE -Wl,-export-dynamic)
+endif()
 
 # ---------------- OpenSSL ----------------
 target_link_libraries(kbcmd PRIVATE KBEOpenSSL::SSL)

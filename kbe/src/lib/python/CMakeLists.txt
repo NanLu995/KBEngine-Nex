@@ -39,13 +39,33 @@ set(KBE_PYTHON_EXTRA_LIBS pthread util dl)
 set(RES_SCRIPTS_DIR ${KBE_ROOT}/kbe/res/scripts/common)
 set(LIB_DIR ${KBE_ROOT}/kbe/src/libs)
 
+# Post-build helper scripts (runtime glob/copy is safer than hardcoded paths)
+set(PYTHON_COPY_DYNLOAD_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/copy_python_dynload.cmake)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_python_dynload.cmake.in
+    ${PYTHON_COPY_DYNLOAD_SCRIPT}
+    @ONLY
+)
+
+set(PYTHON_COPY_LIB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/copy_python_lib.cmake)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_python_lib.cmake.in
+    ${PYTHON_COPY_LIB_SCRIPT}
+    @ONLY
+)
+
 # --------------------------------------------------------
 # 2) 编译 Python
 # --------------------------------------------------------
 # Release 版本
 add_custom_command(
     OUTPUT ${PYTHON_LIB_RELEASE}
-    COMMAND test -f ${PYTHON_LIB_RELEASE} || (chmod +x configure && ./configure --enable-optimizations && make -j)
+    COMMAND test -f ${PYTHON_LIB_RELEASE} || (
+        chmod +x configure &&
+        ${CMAKE_COMMAND} -E env CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+        ./configure --without-ensurepip &&
+        make -j
+    )
     WORKING_DIRECTORY ${PYTHON_SRC_DIR}
     COMMENT "Building embedded Python (Release)..."
 )
@@ -53,7 +73,12 @@ add_custom_command(
 # Debug 版本
 add_custom_command(
     OUTPUT ${PYTHON_LIB_DEBUG}
-    COMMAND test -f ${PYTHON_LIB_DEBUG} || (chmod +x configure && ./configure --enable-optimizations && make -j)
+    COMMAND test -f ${PYTHON_LIB_DEBUG} || (
+        chmod +x configure &&
+        ${CMAKE_COMMAND} -E env CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+        ./configure --with-pydebug --without-ensurepip &&
+        make -j
+    )
     WORKING_DIRECTORY ${PYTHON_SRC_DIR}
     COMMENT "Building embedded Python (Debug)..."
 )
@@ -80,11 +105,7 @@ add_custom_command(TARGET python_build POST_BUILD
 # 4) 拷贝 lib-dynload
 # --------------------------------------------------------
 add_custom_command(TARGET python_build POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E remove_directory ${RES_SCRIPTS_DIR}/lib-dynload
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${RES_SCRIPTS_DIR}/lib-dynload
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${PYTHON_BUILD_DIR}/lib.*
-        ${RES_SCRIPTS_DIR}/lib-dynload
+    COMMAND ${CMAKE_COMMAND} -P ${PYTHON_COPY_DYNLOAD_SCRIPT}
     COMMENT "Copying Python extension modules"
 )
 
@@ -92,10 +113,7 @@ add_custom_command(TARGET python_build POST_BUILD
 # 5) 拷贝 Lib
 # --------------------------------------------------------
 add_custom_command(TARGET python_build POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E remove_directory ${RES_SCRIPTS_DIR}/Lib
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${PYTHON_SRC_DIR}/Lib
-        ${RES_SCRIPTS_DIR}/Lib
+    COMMAND ${CMAKE_COMMAND} -P ${PYTHON_COPY_LIB_SCRIPT}
     COMMENT "Copying Python Lib directory"
 )
 

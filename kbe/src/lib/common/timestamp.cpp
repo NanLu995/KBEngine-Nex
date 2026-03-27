@@ -35,7 +35,7 @@ const char* getTimingMethodName()
 	}
 }
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>

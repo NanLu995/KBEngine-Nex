@@ -19,6 +19,10 @@ extern "C"
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <arpa/inet.h>
+#if KBE_PLATFORM == PLATFORM_APPLE
+#include <ifaddrs.h>
+#include <net/if_dl.h>
+#endif
 #endif
 
 namespace KBEngine
@@ -459,7 +463,7 @@ std::vector< std::string > SystemInfo::getMacAddresses()
 		delete pIpAdapterInfo;
 	}
 
-#else
+#elif KBE_PLATFORM == PLATFORM_UNIX
 
 	int fd;
 	int interfaceNum = 0;
@@ -503,6 +507,32 @@ std::vector< std::string > SystemInfo::getMacAddresses()
 	}
 
 	::close(fd);
+
+#elif KBE_PLATFORM == PLATFORM_APPLE
+	struct ifaddrs* ifaddr = nullptr;
+	if (getifaddrs(&ifaddr) == 0 && ifaddr != nullptr)
+	{
+		for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next)
+		{
+			if (ifa->ifa_addr == nullptr || ifa->ifa_addr->sa_family != AF_LINK)
+			{
+				continue;
+			}
+
+			struct sockaddr_dl* sdl = (struct sockaddr_dl*)ifa->ifa_addr;
+			if (sdl->sdl_alen == 6)
+			{
+				unsigned char* base = (unsigned char*)LLADDR(sdl);
+				char MAC[19];
+				memset(&MAC[0], 0, sizeof(MAC));
+				sprintf(MAC, "%02x:%02x:%02x:%02x:%02x:%02x",
+					base[0], base[1], base[2], base[3], base[4], base[5]);
+				mac_addresses.push_back(MAC);
+			}
+		}
+
+		freeifaddrs(ifaddr);
+	}
 
 #endif
 

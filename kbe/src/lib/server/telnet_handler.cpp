@@ -220,7 +220,7 @@ Network::Reason TelnetHandler::checkLastErrors()
 	int err;
 	Network::Reason reason;
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 	err = errno;
 
 	switch (err)

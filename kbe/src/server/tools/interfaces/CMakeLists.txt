@@ -34,7 +34,9 @@ target_compile_definitions(interfaces PUBLIC  LOG4CXX_STATIC)
 
 # ---------------- Python ----------------
 target_link_libraries(interfaces PRIVATE python_interface)
-target_link_options(interfaces PRIVATE -Wl,-export-dynamic)
+if(NOT APPLE)
+    target_link_options(interfaces PRIVATE -Wl,-export-dynamic)
+endif()
 
 # ---------------- OpenSSL ----------------
 target_link_libraries(interfaces PRIVATE KBEOpenSSL::SSL)

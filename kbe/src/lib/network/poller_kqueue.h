@@ -1,26 +1,26 @@
 // Copyright 2008-2018 Yolo Technologies, Inc. All Rights Reserved. https://www.comblockengine.com
 
-#ifndef KBE_EPOLL_POLLER_H
-#define KBE_EPOLL_POLLER_H
+#ifndef KBE_KQUEUE_POLLER_H
+#define KBE_KQUEUE_POLLER_H
 
 #include "event_poller.h"
 
-#if defined(__linux__)
-#define HAS_EPOLL
+#if KBE_PLATFORM == PLATFORM_APPLE
+#define HAS_KQUEUE
 #endif
 
-namespace KBEngine { 
+namespace KBEngine {
 namespace Network
 {
 
-#ifdef HAS_EPOLL
-class EpollPoller : public EventPoller
+#ifdef HAS_KQUEUE
+class KqueuePoller : public EventPoller
 {
 public:
-	EpollPoller(int expectedSize = 10);
-	virtual ~EpollPoller();
+	KqueuePoller();
+	virtual ~KqueuePoller();
 
-	int getFileDescriptor() const { return epfd_; }
+	int getFileDescriptor() const { return kqfd_; }
 
 protected:
 	virtual bool doRegisterForRead(int fd)
@@ -40,11 +40,10 @@ protected:
 	bool doRegister(int fd, bool isRead, bool isRegister);
 
 private:
-
-	int epfd_;
+	int kqfd_;
 };
-#endif // HAS_EPOLL
+#endif // HAS_KQUEUE
 
 }
 }
-#endif // KBE_EPOLL_POLLER_H
+#endif // KBE_KQUEUE_POLLER_H

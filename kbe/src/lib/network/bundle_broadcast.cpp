@@ -47,7 +47,11 @@ BundleBroadcast::BundleBroadcast(NetworkInterface & networkInterface,
 	}
 	else
 	{
+		epListen_.setreuseaddr(true);
+		epListen_.setreuseport(true);
+
 		int count = 0;
+		bool boundRequestedPort = false;
 
 		while(true)
 		{
@@ -69,9 +73,28 @@ BundleBroadcast::BundleBroadcast(NetworkInterface & networkInterface,
 			{
 				epListen_.addr(htons(bindPort), htonl(INADDR_ANY));
 				good_ = true;
+				boundRequestedPort = true;
 
 				// DEBUG_MSG(fmt::format("BundleBroadcast::BundleBroadcast: epListen {}\n", epListen_.c_str()));
 				break;
+			}
+		}
+
+		// Fallback to an ephemeral UDP port when the requested port is busy.
+		// Machine replies to the sender port recorded in message args, so this
+		// remains protocol-compatible and avoids repeated discovery failures.
+		if (!boundRequestedPort)
+		{
+			if (epListen_.bind(0, htonl(INADDR_ANY)) == 0)
+			{
+				u_int16_t localPort = 0;
+				u_int32_t localAddr = htonl(INADDR_ANY);
+				epListen_.getlocaladdress(&localPort, &localAddr);
+				epListen_.addr(localPort, localAddr);
+				good_ = true;
+
+				WARNING_MSG(fmt::format("BundleBroadcast::BundleBroadcast: Fallback bind to ephemeral port {}.\n",
+					ntohs(localPort)));
 			}
 		}
 	}
@@ -130,6 +153,14 @@ bool BundleBroadcast::broadcast(uint16 port)
 
 	epBroadcast_.sendto(packets()[0]->data(), toIntSize(packets()[0]->length()), htons(port), Network::BROADCAST);
 
+#if defined(__APPLE__)
+	// macOS local-development fallback:
+	// some environments drop local broadcast delivery across processes.
+	// Send one extra unicast copy to localhost so local machine process
+	// can still receive discovery requests.
+	epBroadcast_.sendto(packets()[0]->data(), toIntSize(packets()[0]->length()), htons(port), Network::LOCALHOST);
+#endif
+
 	// 如果指定了地址池，则向所有地址发送消息
 	std::vector< std::string >::iterator addr_iter = machine_addresses_.begin();
 	for (; addr_iter != machine_addresses_.end(); ++addr_iter)
@@ -152,7 +183,7 @@ bool BundleBroadcast::broadcast(uint16 port)
 }
 
 //-------------------------------------------------------------------------------------
-#if KBE_PLATFORM != PLATFORM_UNIX
+#if !KBE_PLATFORM_UNIX_FAMILY
 bool BundleBroadcast::receive(MessageArgs* recvArgs, sockaddr_in* psin, int32 timeout, bool showerr)
 {
 	if (!epListen_.good())

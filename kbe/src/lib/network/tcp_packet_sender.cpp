@@ -147,25 +147,40 @@ bool TCPPacketSender::processSend(Channel* pChannel, int userarg)
 						(pChannel->isInternal() ? "internal" : "external")));
 				*/
 
-				// 连续超过10次则通知出错
-				if (++sendfailCount_ >= 10 && pChannel->isExternal())
-				{
-					onGetError(pChannel, "TCPPacketSender::processSend: sendfailCount >= 10");
+				++sendfailCount_;
 
-					this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(), 
-						fmt::format("TCPPacketSender::processSend(external, sendfailCount({}) >= 10)", (int)sendfailCount_).c_str());
+				// External channels keep strict behavior.
+				if (pChannel->isExternal())
+				{
+					if (sendfailCount_ >= 10)
+					{
+						onGetError(pChannel, "TCPPacketSender::processSend: sendfailCount >= 10");
+
+						this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(),
+							fmt::format("TCPPacketSender::processSend(external, sendfailCount({}) >= 10)", (int)sendfailCount_).c_str());
+					}
+					else
+					{
+						this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(),
+							fmt::format("TCPPacketSender::processSend(external, {})", (int)sendfailCount_).c_str());
+					}
 				}
 				else
 				{
-					this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(), 
-						fmt::format("TCPPacketSender::processSend({}, {})", (pChannel->isInternal() ? "internal" : "external"), (int)sendfailCount_).c_str());
+					// Internal channels: startup bursts on macOS can transiently hit EAGAIN.
+					// Retry silently and only report occasionally to reduce noise.
+					if ((sendfailCount_ % 100) == 0)
+					{
+						this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(),
+							fmt::format("TCPPacketSender::processSend(internal, {})", (int)sendfailCount_).c_str());
+					}
 				}
 			}
 			else
 			{
 				if (pChannel->isExternal())
 				{
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 					this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(), "TCPPacketSender::processSend(external)",
 						fmt::format(", errno: {}", errno).c_str());
 #else
@@ -175,7 +190,7 @@ bool TCPPacketSender::processSend(Channel* pChannel, int userarg)
 				}
 				else
 				{
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 					this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(), "TCPPacketSender::processSend(internal)",
 						fmt::format(", errno: {}, {}", errno, pChannel->c_str()).c_str());
 #else

@@ -14,7 +14,7 @@
 #include "network/tcp_packet.h"
 #include "server/serverconfig.h"
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 #include <unistd.h>
 #include <syslog.h>
 #endif
@@ -1196,7 +1196,7 @@ void DebugHelper::closeLogger()
 {
 	// close logger for fork + execv
 #ifndef NO_USE_LOG4CXX
-	g_logger = (const int)NULL;
+	g_logger = nullptr;
 	log4cxx::LogManager::shutdown();
 #endif
 }

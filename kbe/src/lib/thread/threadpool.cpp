@@ -26,7 +26,7 @@ inline uintptr_t threadIdToLogValue(THREAD_ID tid)
 #else
 inline uintptr_t threadIdToLogValue(THREAD_ID tid)
 {
-	return static_cast<uintptr_t>(tid);
+	return reinterpret_cast<uintptr_t>(tid);
 }
 #endif
 }

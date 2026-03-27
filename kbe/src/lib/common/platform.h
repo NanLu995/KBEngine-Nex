@@ -66,14 +66,16 @@
 #include <netinet/tcp.h> 
 #include <netinet/ip.h>
 #include <arpa/inet.h>
-#include <linux/types.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
-#include <sys/resource.h> 
+#include <sys/resource.h>
+#if defined(__linux__)
+#include <linux/types.h>
 #include <linux/errqueue.h>
+#endif
 #endif
 
 #include <signal.h>
@@ -139,10 +141,16 @@ namespace KBEngine
 #  define KBE_PLATFORM PLATFORM_WIN32
 #elif defined( __INTEL_COMPILER )
 #  define KBE_PLATFORM PLATFORM_INTEL
-#elif defined( __APPLE_CC__ )
+#elif defined( __APPLE__ ) || defined( __APPLE_CC__ )
 #  define KBE_PLATFORM PLATFORM_APPLE
 #else
 #  define KBE_PLATFORM PLATFORM_UNIX
+#endif
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+#define KBE_PLATFORM_UNIX_FAMILY 0
+#else
+#define KBE_PLATFORM_UNIX_FAMILY 1
 #endif
 
 #define COMPILER_MICROSOFT 0
@@ -167,7 +175,7 @@ namespace KBEngine
 #endif
 
 #if KBE_PLATFORM == PLATFORM_UNIX || KBE_PLATFORM == PLATFORM_APPLE
-#ifdef HAVE_DARWIN
+#if defined(HAVE_DARWIN) || defined(__APPLE__)
 #define KBE_PLATFORM_TEXT "MacOSX"
 #define UNIX_FLAVOUR UNIX_FLAVOUR_OSX
 #else
@@ -617,8 +625,8 @@ inline const char * getUsername()
 
 	return username;
 #else
-	char * pUsername = cuserid(NULL);
-	return pUsername ? pUsername : "";
+	struct passwd* pwd = getpwuid(getuid());
+	return (pwd && pwd->pw_name) ? pwd->pw_name : "";
 #endif
 }
 
@@ -664,7 +672,7 @@ inline uint32 getSystemTimeDiff(uint32 oldTime, uint32 newTime)
 /* get system time */
 inline void kbe_timeofday(long *sec, long *usec)
 {
-#if defined(__unix)
+#if KBE_PLATFORM != PLATFORM_WIN32
 	struct timeval time;
 	gettimeofday(&time, NULL);
 	if (sec) *sec = time.tv_sec;

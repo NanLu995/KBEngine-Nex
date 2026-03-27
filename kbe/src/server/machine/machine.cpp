@@ -709,18 +709,24 @@ bool Machine::initNetwork()
 		return false;
 	}
 
+	u_int32_t epBindAddr = broadcastAddr_;
+#if defined(__APPLE__)
+	// On macOS, bind discovery socket to INADDR_ANY so it can receive
+	// datagrams sent to broadcast addresses from other local processes.
+	epBindAddr = htonl(INADDR_ANY);
+#endif
 	if (!ep_.good() ||
-		ep_.bind(htons(KBE_MACHINE_BROADCAST_SEND_PORT), broadcastAddr_) == -1)
+		ep_.bind(htons(KBE_MACHINE_BROADCAST_SEND_PORT), epBindAddr) == -1)
 	{
 		ERROR_MSG(fmt::format("Machine::initNetwork: Failed to bind UDP-socket to '{}:{}'. {}.\n",
-							inet_ntoa((struct in_addr &)broadcastAddr_),
+							inet_ntoa((struct in_addr &)epBindAddr),
 							(KBE_MACHINE_BROADCAST_SEND_PORT),
 							kbe_strerror()));
 
 		return false;
 	}
 
-	address.ip = broadcastAddr_;
+	address.ip = epBindAddr;
 	address.port = htons(KBE_MACHINE_BROADCAST_SEND_PORT);
 	ep_.setbroadcast( true );
 	ep_.setnonblocking(true);
@@ -732,8 +738,19 @@ bool Machine::initNetwork()
 		ERROR_MSG("Machine::initNetwork: registerReadFileDescriptor ep is failed!\n");
 		return false;
 	}
+
+#if defined(__APPLE__)
+	// On macOS/BSD, binding additional UDP sockets on the same port often conflicts
+	// with an already-bound socket (even if addresses differ). ep_ is sufficient
+	// to receive broadcast/local datagrams, so skip extra sockets entirely.
+	INFO_MSG(fmt::format("Machine::initNetwork: using single UDP socket on {} for broadcast/local recv (broadcast-if={}).\n",
+		ep_.addr().c_str(), inet_ntoa((struct in_addr &)broadcastAddr_)));
+	return true;
+#endif
 	
 #if KBE_PLATFORM == PLATFORM_WIN32
+	u_int32_t baddr = htonl(INADDR_ANY);
+#elif defined(__APPLE__)
 	u_int32_t baddr = htonl(INADDR_ANY);
 #else
 	u_int32_t baddr = Network::BROADCAST;

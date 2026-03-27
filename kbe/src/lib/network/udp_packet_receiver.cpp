@@ -185,7 +185,7 @@ PacketReceiver::RecvState UDPPacketReceiver::checkSocketErrors(int len, bool exp
 		return RECV_STATE_BREAK;
 	}
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 	if (errno == EAGAIN ||
 		errno == ECONNREFUSED ||
 		errno == EHOSTUNREACH)

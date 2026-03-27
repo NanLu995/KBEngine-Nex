@@ -7,9 +7,10 @@
 
 namespace KBEngine { 
 
-#ifndef HAS_EPOLL
-
-ProfileVal g_idleProfile("Idle");
+namespace
+{
+ProfileVal g_selectIdleProfile("Idle");
+}
 
 namespace Network
 {
@@ -93,7 +94,7 @@ int SelectPoller::processPendingEvents(double maxWait)
 		(int)((maxWait - (double)nextTimeout.tv_sec) * 1000000.0);
 
 #if ENABLE_WATCHERS
-	g_idleProfile.start();
+	g_selectIdleProfile.start();
 #else
 	uint64 startTime = timestamp();
 #endif
@@ -117,8 +118,8 @@ int SelectPoller::processPendingEvents(double maxWait)
 	KBEConcurrency::onEndMainThreadIdling();
 
 #if ENABLE_WATCHERS
-	g_idleProfile.stop();
-	spareTime_ += g_idleProfile.lastTime_;
+	g_selectIdleProfile.stop();
+	spareTime_ += g_selectIdleProfile.lastTime_;
 #else
 	spareTime_ += timestamp() - startTime;
 #endif
@@ -262,8 +263,6 @@ bool SelectPoller::doDeregisterForWrite(int fd)
 	--fdWriteCount_;
 	return true;
 }
-
-#endif // HAS_EPOLL
 
 }
 }
