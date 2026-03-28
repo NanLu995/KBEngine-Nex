@@ -38,18 +38,19 @@ set(KBE_PYTHON_EXTRA_LIBS pthread util dl)
 
 set(RES_SCRIPTS_DIR ${KBE_ROOT}/kbe/res/scripts/common)
 set(LIB_DIR ${KBE_ROOT}/kbe/src/libs)
+set(KBE_CMAKEFILE_DIR ${KBE_ROOT}/kbe/src/cmakefile)
 
 # Post-build helper scripts (runtime glob/copy is safer than hardcoded paths)
 set(PYTHON_COPY_DYNLOAD_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/copy_python_dynload.cmake)
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_python_dynload.cmake.in
+    ${KBE_CMAKEFILE_DIR}/copy_python_dynload.cmake.in
     ${PYTHON_COPY_DYNLOAD_SCRIPT}
     @ONLY
 )
 
 set(PYTHON_COPY_LIB_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/copy_python_lib.cmake)
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_python_lib.cmake.in
+    ${KBE_CMAKEFILE_DIR}/copy_python_lib.cmake.in
     ${PYTHON_COPY_LIB_SCRIPT}
     @ONLY
 )
