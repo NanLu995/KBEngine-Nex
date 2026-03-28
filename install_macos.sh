@@ -3,172 +3,68 @@ set -e
 
 
 # =========================================
-# Detect distribution and select package manager
-# =========================================
-UPDATED=0
-
-if command -v apt-get >/dev/null 2>&1; then
-    INSTALL_CMD="sudo apt-get install -y"
-    PKG_CHECK="dpkg -s"
-    PKG_UPDATE="sudo apt-get update -y"
-elif command -v dnf >/dev/null 2>&1; then
-    INSTALL_CMD="sudo dnf install -y"
-    PKG_CHECK="rpm -q"
-    PKG_UPDATE="sudo dnf makecache -y"
-elif command -v yum >/dev/null 2>&1; then
-    INSTALL_CMD="sudo yum install -y"
-    PKG_CHECK="rpm -q"
-    PKG_UPDATE="sudo yum makecache -y"
-elif command -v zypper >/dev/null 2>&1; then
-    INSTALL_CMD="sudo zypper install -y"
-    PKG_CHECK="rpm -q"
-    PKG_UPDATE="sudo zypper refresh"
-elif command -v pacman >/dev/null 2>&1; then
-    INSTALL_CMD="sudo pacman -S --noconfirm --needed"
-    PKG_CHECK="pacman -Qi"
-    PKG_UPDATE="sudo pacman -Sy"
-elif command -v apk >/dev/null 2>&1; then
-    INSTALL_CMD="sudo apk add --no-cache"
-    PKG_CHECK="apk info"
-    PKG_UPDATE=""
-else
-    echo "[ERROR] Unknown package manager, please install dependencies manually"
-    # exit 1
-fi
-
-update_pkg_index() {
-    if [ "$UPDATED" -eq 0 ]; then
-        if [ -n "$PKG_UPDATE" ]; then
-            echo "[INFO] Updating package index..."
-            $PKG_UPDATE || true
-        fi
-        UPDATED=1
-    fi
-}
-
-
-update_pkg_index
-
-
-
-install_dep() {
-    NAME="$1"
-    IGNORE_FAIL="$2"
-    shift 2
-    for PKG in "$@"; do
-        # Check if installed
-        if $PKG_CHECK "$PKG" >/dev/null 2>&1; then
-            echo "[INFO] $NAME is already installed ($PKG)"
-            return 0
-        fi
-    done
-    # Try to install candidate packages
-    for PKG in "$@"; do
-        echo "[INFO] Trying to install $NAME ($PKG)"
-        if $INSTALL_CMD "$PKG" >/dev/null 2>&1; then
-            echo "[INFO] Installed successfully: $PKG"
-            return 0
-        fi
-    done
-    echo "[WARN] Failed to install $NAME, please install manually (candidates: $*)"
-    if [ "$IGNORE_FAIL" = true ]; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-
-
-# Check if system is CentOS / RHEL / Fedora
-is_centos() {
-    [ -f /etc/os-release ] && grep -qiE 'centos\|rhel\|fedora' /etc/os-release
-}
-
-# =========================================
 # Build type
 # =========================================
 KBE_CONFIG=${1:-Release}
 echo "[INFO] Using build type: $KBE_CONFIG"
 
-# # =========================================
-# # Basic tools
-# # =========================================
-# install_dep "Git" false git
-# install_dep "GCC" false gcc
-# install_dep "G++" false g++ gcc-c++
-# install_dep "Make" false make
-# install_dep "Autoconf" false autoconf
-# install_dep "autoconf-archive" false autoconf-archive
-# install_dep "automake" false automake
-# install_dep "Libtool" false libtool-bin libtool
-# install_dep "CMake" false cmake
-# install_dep "pkg-config" false pkg-config pkgconf-pkg-config pkgconf
+# =========================================
+# Basic tools and dependencies (macOS)
+# =========================================
+if ! command -v git >/dev/null 2>&1; then
+    echo "[ERROR] Git is not installed."
+    echo "[INFO] Please install Git first, then rerun this script."
+    echo "[INFO] Official site: https://git-scm.com/download/mac"
+    echo "[INFO] Tutorial: https://docs.github.com/en/get-started/git-basics/set-up-git"
+    exit 1
+fi
 
-# install_dep "curl" false curl
-# install_dep "zip" false zip
-# install_dep "unzip" false unzip
-# install_dep "tar" false tar
+if ! command -v brew >/dev/null 2>&1; then
+    echo "[ERROR] Homebrew is not installed."
+    echo "[INFO] Please install Homebrew first, then rerun this script."
+    echo "[INFO] Official site: https://brew.sh/"
+    echo "[INFO] Install guide: https://docs.brew.sh/Installation"
+    exit 1
+fi
 
-# # Install Build Tools only on non-CentOS systems
-# if ! is_centos; then
-#     install_dep "Build Tools"  false build-essential "@development-tools" base-devel
-# else
-#     echo "[INFO] Skipping 'Build Tools' installation on CentOS/RHEL/Fedora"
-# fi
+if ! command -v xcode-select >/dev/null 2>&1; then
+    echo "[ERROR] xcode-select is not available."
+    echo "[INFO] Please install Xcode Command Line Tools first, then rerun this script."
+    echo "[INFO] Run: xcode-select --install"
+    echo "[INFO] Apple docs: https://developer.apple.com/download/all/"
+    exit 1
+fi
 
+if ! xcode-select -p >/dev/null 2>&1; then
+    echo "[ERROR] Xcode Command Line Tools are not installed."
+    echo "[INFO] Please install them first, then rerun this script."
+    echo "[INFO] Run: xcode-select --install"
+    echo "[INFO] Apple docs: https://developer.apple.com/download/all/"
+    exit 1
+fi
 
+install_brew_dep() {
+    PKG="$1"
+    if brew list --formula "$PKG" >/dev/null 2>&1; then
+        echo "[INFO] $PKG is already installed"
+        return 0
+    fi
 
-# # =========================================
-# # Extra dependencies
-# # =========================================
+    echo "[INFO] Installing $PKG via Homebrew..."
+    brew install "$PKG"
+}
 
-# if is_centos; then
-#     # Install dnf-plugins-core
-#     install_dep "dnf-plugins-core" true dnf-plugins-core 
-#     sudo dnf config-manager --set-enabled crb  || true
-# else
-#     echo "[INFO] Non-CentOS/RHEL/Fedora system, skipping dnf-plugins-core installation"
-# fi
-
-
-# install_dep "TIRPC"  false libtirpc-dev libtirpc-devel
-# install_dep "MySQL/MariaDB"  false \
-#     libmysqlclient-dev libmariadb-dev \
-#     mariadb-devel mysql-devel mariadb-connector-c-devel \
-#     libmariadb-devel libmysqlclient-devel \
-#     mariadb-clients mariadb-libs \
-#     mariadb-connector-c-dev mysql-dev
-# install_dep "libffi"  false libffi-dev libffi-devel libffi
-# install_dep "UUID"  false uuid-dev libuuid-devel util-linux-dev
-# install_dep "BZip2"  false libbz2-dev bzip2-devel libbz2-devel bzip2
-# install_dep "OpenSSL"  false libssl-dev openssl-devel openssl-dev
-# install_dep "Zlib"  false zlib1g-dev zlib-devel zlib-dev
-# install_dep "CURL Dev"  false libcurl4-openssl-dev libcurl-devel curl-dev
-
-# if $PKG_CHECK "libmariadb-dev" >/dev/null 2>&1; then
-#     install_dep "libmariadb-dev-compat"  true libmariadb-dev-compat
-# fi
-
-
-# if is_centos; then
-#     # Install Perl
-#     install_dep "perl" false perl
-#     install_dep "perl-core" false perl-core
-#     install_dep "perl-IPC-Cmd" false perl-IPC-Cmd
-#     install_dep "perl-FindBin" true perl-FindBin
-# else
-#     echo "[INFO] Non-CentOS/RHEL/Fedora system, skipping Perl installation"
-# fi
+install_brew_dep cmake
+install_brew_dep autoconf
+install_brew_dep automake
+install_brew_dep libtool
+install_brew_dep pkg-config
+install_brew_dep libtirpc
 
 # =========================================
 # Check GitHub accessibility
 # =========================================
 echo "[CHECK] Trying to access GitHub repository..."
-if ! command -v git >/dev/null 2>&1; then
-    echo "[WARN] Git is not installed, will install later"
-fi
-
 if ! git ls-remote https://github.com/microsoft/vcpkg.git >/dev/null 2>&1; then
     echo "[ERROR] Cannot access GitHub repository, please check network or proxy"
     echo "[INFO] You can also use the domestic Gitee mirror, try running gitee/install_linux.sh."
