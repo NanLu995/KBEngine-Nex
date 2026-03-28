@@ -1,0 +1,9 @@
+set(src "@PYTHON_SRC_DIR@/Lib")
+set(dst "@RES_SCRIPTS_DIR@/Lib")
+
+if(NOT EXISTS "${src}")
+  message(FATAL_ERROR "Python Lib directory not found: ${src}")
+endif()
+
+file(REMOVE_RECURSE "${dst}")
+file(COPY "${src}/" DESTINATION "${dst}")
