@@ -129,6 +129,8 @@ add_custom_target(python_build ALL
 # 3) 拷贝 libpython.a
 # --------------------------------------------------------
 add_custom_command(TARGET python_build POST_BUILD
+    BYPRODUCTS
+        ${LIB_DIR}/libpython$<$<CONFIG:Debug>:_d>.a
     COMMAND ${CMAKE_COMMAND} -E make_directory ${LIB_DIR}
     COMMAND ${CMAKE_COMMAND} -E remove -f
         ${LIB_DIR}/libpython$<$<CONFIG:Debug>:_d>.a
@@ -164,7 +166,7 @@ target_include_directories(python_interface INTERFACE ${KBE_PYTHON_INCLUDE_DIRS}
 
 # Debug / Release 自动切换不同库
 target_link_libraries(python_interface INTERFACE
-    debug ${LIB_DIR}/libpython_d.a
-    optimized ${LIB_DIR}/libpython.a
+    debug ${PYTHON_LIB_DEBUG}
+    optimized ${PYTHON_LIB_RELEASE}
     ${KBE_PYTHON_EXTRA_LIBS}
 )
