@@ -40,6 +40,42 @@ set(RES_SCRIPTS_DIR ${KBE_ROOT}/kbe/res/scripts/common)
 set(LIB_DIR ${KBE_ROOT}/kbe/src/libs)
 set(KBE_CMAKEFILE_DIR ${KBE_ROOT}/kbe/src/cmakefile)
 
+# Keep Python's standalone configure/make build flags aligned with CMake.
+set(PYTHON_BUILD_ENV
+    CC=${CMAKE_C_COMPILER}
+    CXX=${CMAKE_CXX_COMPILER}
+)
+
+if(APPLE)
+    set(PYTHON_MACOSX_DEPLOYMENT_TARGET "")
+
+    if(CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(PYTHON_MACOSX_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    elseif(DEFINED ENV{MACOSX_DEPLOYMENT_TARGET} AND NOT "$ENV{MACOSX_DEPLOYMENT_TARGET}" STREQUAL "")
+        set(PYTHON_MACOSX_DEPLOYMENT_TARGET "$ENV{MACOSX_DEPLOYMENT_TARGET}")
+    else()
+        execute_process(
+            COMMAND sw_vers -productVersion
+            OUTPUT_VARIABLE _kbe_macos_version
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        string(REGEX MATCH "^[0-9]+" _kbe_macos_major "${_kbe_macos_version}")
+        if(_kbe_macos_major)
+            set(PYTHON_MACOSX_DEPLOYMENT_TARGET "${_kbe_macos_major}.0")
+        endif()
+    endif()
+
+    if(PYTHON_MACOSX_DEPLOYMENT_TARGET)
+        list(APPEND PYTHON_BUILD_ENV MACOSX_DEPLOYMENT_TARGET=${PYTHON_MACOSX_DEPLOYMENT_TARGET})
+        message(STATUS "Embedded Python deployment target: ${PYTHON_MACOSX_DEPLOYMENT_TARGET}")
+    endif()
+
+    if(CMAKE_OSX_SYSROOT)
+        list(APPEND PYTHON_BUILD_ENV SDKROOT=${CMAKE_OSX_SYSROOT})
+    endif()
+endif()
+
 # Post-build helper scripts (runtime glob/copy is safer than hardcoded paths)
 set(PYTHON_COPY_DYNLOAD_SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/copy_python_dynload.cmake)
 configure_file(
@@ -63,7 +99,7 @@ add_custom_command(
     OUTPUT ${PYTHON_LIB_RELEASE}
     COMMAND test -f ${PYTHON_LIB_RELEASE} || (
         chmod +x configure &&
-        ${CMAKE_COMMAND} -E env CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+        ${CMAKE_COMMAND} -E env ${PYTHON_BUILD_ENV}
         ./configure --without-ensurepip &&
         make -j
     )
@@ -76,7 +112,7 @@ add_custom_command(
     OUTPUT ${PYTHON_LIB_DEBUG}
     COMMAND test -f ${PYTHON_LIB_DEBUG} || (
         chmod +x configure &&
-        ${CMAKE_COMMAND} -E env CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+        ${CMAKE_COMMAND} -E env ${PYTHON_BUILD_ENV}
         ./configure --with-pydebug --without-ensurepip &&
         make -j
     )
