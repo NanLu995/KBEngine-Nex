@@ -98,6 +98,7 @@ install_dep "Git" false git
 install_dep "GCC" false gcc
 install_dep "G++" false g++ gcc-c++
 install_dep "Make" false make
+install_dep "Ninja" false ninja-build ninja
 install_dep "Autoconf" false autoconf
 install_dep "autoconf-archive" false autoconf-archive
 install_dep "automake" false automake
@@ -206,9 +207,12 @@ echo "[INFO] Entering ./kbe/src/"
 cd "./kbe/src/"
 
 echo "[INFO] Configuring CMake"
-cmake -B build -S . \
+cmake -G Ninja -B build -S . \
+    -DCMAKE_MAKE_PROGRAM="$(command -v ninja)" \
     -DCMAKE_TOOLCHAIN_FILE="$VCPKG_DIR/scripts/buildsystems/vcpkg.cmake" \
     -DKBE_CONFIG="$KBE_CONFIG"
+
+export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
 
 echo "[INFO] Building KBEngine-Nex"
 cmake --build build -j"$(nproc)"

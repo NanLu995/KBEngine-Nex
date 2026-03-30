@@ -98,6 +98,7 @@ install_dep "Git" false git
 install_dep "GCC" false gcc
 install_dep "G++" false g++ gcc-c++
 install_dep "Make" false make
+install_dep "Ninja" false ninja-build ninja
 install_dep "Autoconf" false autoconf
 install_dep "Libtool" false libtool-bin libtool
 install_dep "CMake" false cmake
@@ -231,9 +232,14 @@ echo "[INFO] 进入 ../kbe/src/"
 cd "../kbe/src/"
 
 echo "[INFO] 配置 CMake"
-cmake -B build -S . \
+
+cmake -G Ninja -B build -S . \
+    -DCMAKE_MAKE_PROGRAM="$(command -v ninja)" \
     -DCMAKE_TOOLCHAIN_FILE="$VCPKG_DIR/scripts/buildsystems/vcpkg.cmake" \
     -DKBE_CONFIG="$KBE_CONFIG"
+
+echo "[INFO] 设置并行编译线程数"
+export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
 
 echo "[INFO] 开始编译 KBEngine-Nex"
 cmake --build build -j"$(nproc)"
