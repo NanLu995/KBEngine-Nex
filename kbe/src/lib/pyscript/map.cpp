@@ -40,6 +40,8 @@ SCRIPT_METHOD_DECLARE("values",				values,				METH_VARARGS,		0)
 SCRIPT_METHOD_DECLARE("items",				items,				METH_VARARGS,		0)
 SCRIPT_METHOD_DECLARE("update",				update,				METH_VARARGS,		0)	
 SCRIPT_METHOD_DECLARE("get",				get,				METH_VARARGS,		0)	
+SCRIPT_METHOD_DECLARE("clear",				clear,				METH_VARARGS,		0)
+SCRIPT_METHOD_DECLARE("pop",				pop,				METH_VARARGS,		0)
 SCRIPT_METHOD_DECLARE_END()
 
 SCRIPT_MEMBER_DECLARE_BEGIN(Map)
@@ -214,6 +216,50 @@ PyObject* Map::__py_update(PyObject* self, PyObject* args)
 
 	Py_DECREF(pyVal);
 	S_Return; 
+}
+
+//-------------------------------------------------------------------------------------
+PyObject* Map::__py_clear(PyObject* self, PyObject* args)
+{
+	PyDict_Clear(static_cast<Map*>(self)->pyDict_);
+	S_Return;
+}
+
+//-------------------------------------------------------------------------------------
+PyObject* Map::__py_pop(PyObject* self, PyObject* args)
+{
+	PyObject* pyKey = PySequence_GetItem(args, 0);
+	if (!pyKey)
+	{
+		PyErr_SetObject(PyExc_KeyError, args);
+		return NULL;
+	}
+
+	PyObject* pyObj = PyDict_GetItem(static_cast<Map*>(self)->pyDict_, pyKey);
+	
+	if (!pyObj)
+	{
+		Py_DECREF(pyKey);
+		
+		// 如果提供了默认值，返回默认值
+		if (PySequence_Size(args) > 1)
+		{
+			PyObject* pyDefault = PySequence_GetItem(args, 1);
+			return pyDefault;
+		}
+		else
+		{
+			PyErr_SetObject(PyExc_KeyError, pyKey);
+			return NULL;
+		}
+	}
+	else
+	{
+		Py_INCREF(pyObj);
+		PyDict_DelItem(static_cast<Map*>(self)->pyDict_, pyKey);
+		Py_DECREF(pyKey);
+		return pyObj;
+	}
 }
 
 //-------------------------------------------------------------------------------------

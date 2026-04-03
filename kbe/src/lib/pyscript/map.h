@@ -29,6 +29,8 @@ public:
 	static PyObject* __py_items(PyObject* self, PyObject* args);
 	static PyObject* __py_update(PyObject* self, PyObject* args);
 	static PyObject* __py_get(PyObject* self, PyObject* args);
+	static PyObject* __py_clear(PyObject* self, PyObject* args);
+	static PyObject* __py_pop(PyObject* self, PyObject* args);
 
 	static int seq_contains(PyObject* self, PyObject* value);
 
