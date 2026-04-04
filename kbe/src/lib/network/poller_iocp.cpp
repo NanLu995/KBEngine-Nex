@@ -42,24 +42,36 @@ inline DWORD toTimeoutMilliseconds(double maxWait, bool hasWriteHandlers)
 }
 }
 
-//-------------------------------------------------------------------------------------
-IocpPoller::SocketState::SocketState(KBESOCKET socketArg) :
+IocpPoller::IocpContext::IocpContext(int fdArg, KBESOCKET socketArg, SocketKind kindArg, uint64 generationArg) :
 	overlapped(),
+	fd(fdArg),
 	socket(socketArg),
-	kind(SOCKET_KIND_UNKNOWN),
-	associated(false),
-	registeredRead(false),
-	pendingRead(false),
-	acceptSocket(INVALID_SOCKET),
-	acceptExFn(NULL),
+	kind(kindArg),
+	generation(generationArg),
+	buffer(),
+	flags(0),
 	probeByte(0),
+	acceptSocket(INVALID_SOCKET),
 	acceptBuffer(),
 	udpAddr(),
 	udpAddrLen(sizeof(udpAddr))
 {
 	memset(&overlapped, 0, sizeof(overlapped));
+	memset(&buffer, 0, sizeof(buffer));
 	memset(&udpAddr, 0, sizeof(udpAddr));
 	memset(acceptBuffer, 0, sizeof(acceptBuffer));
+}
+
+//-------------------------------------------------------------------------------------
+IocpPoller::SocketState::SocketState(KBESOCKET socketArg) :
+	socket(socketArg),
+	kind(SOCKET_KIND_UNKNOWN),
+	associated(false),
+	registeredRead(false),
+	generation(0),
+	pPendingContext(NULL),
+	acceptExFn(NULL)
+{
 }
 
 //-------------------------------------------------------------------------------------
@@ -87,15 +99,12 @@ IocpPoller::~IocpPoller()
 	for (auto& item : socketStates_)
 	{
 		SocketState& state = *item.second;
-		if (state.pendingRead)
+		if (state.pPendingContext != NULL)
 		{
-			CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.overlapped);
-		}
-
-		if (state.acceptSocket != INVALID_SOCKET)
-		{
-			closesocket(state.acceptSocket);
-			state.acceptSocket = INVALID_SOCKET;
+			CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.pPendingContext->overlapped);
+			cleanupContext(*state.pPendingContext);
+			delete state.pPendingContext;
+			state.pPendingContext = NULL;
 		}
 	}
 
@@ -205,116 +214,130 @@ bool IocpPoller::loadAcceptEx(SocketState& state)
 }
 
 //-------------------------------------------------------------------------------------
-bool IocpPoller::armTcpRead(SocketState& state)
+bool IocpPoller::armTcpRead(int fd, SocketState& state)
 {
+	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_TCP, state.generation);
+	pContext->buffer.buf = &pContext->probeByte;
+	pContext->buffer.len = 0;
+
+	DWORD bytes = 0;
 	DWORD flags = 0;
-	DWORD bytes = 0;
-	WSABUF buffer;
-	buffer.buf = &state.probeByte;
-	buffer.len = 0;
-
-	memset(&state.overlapped, 0, sizeof(state.overlapped));
-	int ret = WSARecv(state.socket, &buffer, 1, &bytes, &flags, &state.overlapped, NULL);
+	int ret = WSARecv(state.socket, &pContext->buffer, 1, &bytes, &flags, &pContext->overlapped, NULL);
 	if (ret == 0)
 	{
-		state.pendingRead = true;
+		state.pPendingContext = pContext;
 		return true;
 	}
 
 	int wsaErr = WSAGetLastError();
 	if (wsaErr == WSA_IO_PENDING)
 	{
-		state.pendingRead = true;
+		state.pPendingContext = pContext;
 		return true;
 	}
 
+	delete pContext;
 	return false;
 }
 
 //-------------------------------------------------------------------------------------
-bool IocpPoller::armUdpRead(SocketState& state)
+bool IocpPoller::armUdpRead(int fd, SocketState& state)
 {
-	DWORD flags = MSG_PEEK;
-	DWORD bytes = 0;
-	WSABUF buffer;
-	buffer.buf = &state.probeByte;
-	buffer.len = 1;
-	state.udpAddrLen = sizeof(state.udpAddr);
-	memset(&state.udpAddr, 0, sizeof(state.udpAddr));
-	memset(&state.overlapped, 0, sizeof(state.overlapped));
+	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_UDP, state.generation);
+	pContext->flags = MSG_PEEK;
+	pContext->buffer.buf = &pContext->probeByte;
+	pContext->buffer.len = 1;
 
-	int ret = WSARecvFrom(state.socket, &buffer, 1, &bytes, &flags,
-		reinterpret_cast<sockaddr*>(&state.udpAddr), &state.udpAddrLen,
-		&state.overlapped, NULL);
+	DWORD bytes = 0;
+	int ret = WSARecvFrom(state.socket, &pContext->buffer, 1, &bytes, &pContext->flags,
+		reinterpret_cast<sockaddr*>(&pContext->udpAddr), &pContext->udpAddrLen,
+		&pContext->overlapped, NULL);
 
 	if (ret == 0)
 	{
-		state.pendingRead = true;
+		state.pPendingContext = pContext;
 		return true;
 	}
 
 	int wsaErr = WSAGetLastError();
 	if (wsaErr == WSA_IO_PENDING)
 	{
-		state.pendingRead = true;
+		state.pPendingContext = pContext;
 		return true;
 	}
 
+	if (wsaErr == WSAEMSGSIZE)
+	{
+		// A 1-byte MSG_PEEK probe can fail synchronously when a larger UDP
+		// datagram is already queued. That still means the socket is readable.
+		delete pContext;
+		this->triggerRead(fd);
+
+		auto iter = socketStates_.find(fd);
+		if (iter != socketStates_.end())
+		{
+			SocketState& currentState = *iter->second;
+			if (currentState.registeredRead && currentState.pPendingContext == NULL)
+			{
+				ensureReadArmed(fd, currentState);
+			}
+		}
+
+		return true;
+	}
+
+	delete pContext;
 	return false;
 }
 
 //-------------------------------------------------------------------------------------
-bool IocpPoller::armAccept(SocketState& state)
+bool IocpPoller::armAccept(int fd, SocketState& state)
 {
 	if (!loadAcceptEx(state))
 	{
 		return false;
 	}
 
-	if (state.acceptSocket != INVALID_SOCKET)
-	{
-		closesocket(state.acceptSocket);
-		state.acceptSocket = INVALID_SOCKET;
-	}
+	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_LISTENER, state.generation);
 
-	state.acceptSocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
-	if (state.acceptSocket == INVALID_SOCKET)
+	pContext->acceptSocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+	if (pContext->acceptSocket == INVALID_SOCKET)
 	{
 		ERROR_MSG(fmt::format("IocpPoller::armAccept: WSASocket failed: {}\n",
 			kbe_strerror(WSAGetLastError())));
+		delete pContext;
 		return false;
 	}
 
 	DWORD bytes = 0;
-	memset(&state.overlapped, 0, sizeof(state.overlapped));
-	BOOL ok = state.acceptExFn(state.socket, state.acceptSocket,
-		state.acceptBuffer, 0,
+	BOOL ok = state.acceptExFn(state.socket, pContext->acceptSocket,
+		pContext->acceptBuffer, 0,
 		sizeof(sockaddr_in) + 16,
 		sizeof(sockaddr_in) + 16,
-		&bytes, &state.overlapped);
+		&bytes, &pContext->overlapped);
 
 	if (ok)
 	{
-		state.pendingRead = true;
+		state.pPendingContext = pContext;
 		return true;
 	}
 
 	int wsaErr = WSAGetLastError();
 	if (wsaErr == ERROR_IO_PENDING)
 	{
-		state.pendingRead = true;
+		state.pPendingContext = pContext;
 		return true;
 	}
 
-	closesocket(state.acceptSocket);
-	state.acceptSocket = INVALID_SOCKET;
+	cleanupContext(*pContext);
+	delete pContext;
 	return false;
 }
 
 //-------------------------------------------------------------------------------------
 bool IocpPoller::ensureReadArmed(int fd, SocketState& state)
 {
-	if (!state.registeredRead || state.pendingRead)
+	if (!state.registeredRead || state.pPendingContext != NULL)
 	{
 		return true;
 	}
@@ -335,11 +358,11 @@ bool IocpPoller::ensureReadArmed(int fd, SocketState& state)
 	switch (state.kind)
 	{
 	case SOCKET_KIND_TCP:
-		return armTcpRead(state);
+		return armTcpRead(fd, state);
 	case SOCKET_KIND_UDP:
-		return armUdpRead(state);
+		return armUdpRead(fd, state);
 	case SOCKET_KIND_LISTENER:
-		return armAccept(state);
+		return armAccept(fd, state);
 	default:
 		return false;
 	}
@@ -355,8 +378,14 @@ bool IocpPoller::doRegisterForRead(int fd)
 		iter = socketStates_.insert(std::make_pair(fd, std::move(state))).first;
 	}
 
-	iter->second->socket = static_cast<KBESOCKET>(fd);
-	iter->second->registeredRead = true;
+	SocketState& state = *iter->second;
+	state.socket = static_cast<KBESOCKET>(fd);
+	state.kind = SOCKET_KIND_UNKNOWN;
+	state.associated = false;
+	state.registeredRead = true;
+	++state.generation;
+	state.pPendingContext = NULL;
+	state.acceptExFn = NULL;
 	ensureReadArmed(fd, *iter->second);
 	return true;
 }
@@ -380,9 +409,9 @@ bool IocpPoller::doDeregisterForRead(int fd)
 	SocketState& state = *iter->second;
 	state.registeredRead = false;
 
-	if (state.pendingRead)
+	if (state.pPendingContext != NULL)
 	{
-		CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.overlapped);
+		CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.pPendingContext->overlapped);
 	}
 	else
 	{
@@ -409,15 +438,9 @@ void IocpPoller::cleanupStateIfUnused(int fd)
 	}
 
 	SocketState& state = *iter->second;
-	if (state.registeredRead || state.pendingRead || this->findForWrite(fd) != NULL)
+	if (state.registeredRead || state.pPendingContext != NULL || this->findForWrite(fd) != NULL)
 	{
 		return;
-	}
-
-	if (state.acceptSocket != INVALID_SOCKET)
-	{
-		closesocket(state.acceptSocket);
-		state.acceptSocket = INVALID_SOCKET;
 	}
 
 	auto acceptedIter = acceptedSockets_.find(fd);
@@ -445,6 +468,16 @@ void IocpPoller::closeAcceptedSockets(AcceptedSockets& acceptedSockets)
 }
 
 //-------------------------------------------------------------------------------------
+void IocpPoller::cleanupContext(IocpContext& context)
+{
+	if (context.acceptSocket != INVALID_SOCKET)
+	{
+		closesocket(context.acceptSocket);
+		context.acceptSocket = INVALID_SOCKET;
+	}
+}
+
+//-------------------------------------------------------------------------------------
 void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapped, bool success, DWORD errorCode)
 {
 	if (overlapped == NULL)
@@ -452,31 +485,54 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 		return;
 	}
 
-	int fd = static_cast<int>(completionKey);
-	auto iter = socketStates_.find(fd);
-	if (iter == socketStates_.end())
-	{
-		return;
-	}
+	(void)completionKey;
+	IocpContext* pContext = reinterpret_cast<IocpContext*>(overlapped);
+	const int fd = pContext->fd;
 
-	SocketState& state = *iter->second;
-	state.pendingRead = false;
+	auto iter = socketStates_.find(fd);
+	const bool hasState = (iter != socketStates_.end());
+	SocketState* pState = hasState ? iter->second.get() : NULL;
+	const bool isCurrentContext = (pState != NULL &&
+		pState->socket == pContext->socket &&
+		pState->generation == pContext->generation &&
+		pState->pPendingContext == pContext);
+	const bool isUdpProbeMoreData = (pContext->kind == SOCKET_KIND_UDP && errorCode == ERROR_MORE_DATA);
+	const bool isUdpPortUnreachable = (pContext->kind == SOCKET_KIND_UDP && errorCode == ERROR_PORT_UNREACHABLE);
+
+	if (isCurrentContext)
+	{
+		pState->pPendingContext = NULL;
+	}
 
 	if (!success && errorCode == ERROR_OPERATION_ABORTED)
 	{
-		cleanupStateIfUnused(fd);
+		cleanupContext(*pContext);
+		delete pContext;
+
+		if (isCurrentContext)
+		{
+			cleanupStateIfUnused(fd);
+		}
+
 		return;
 	}
 
-	if (state.kind == SOCKET_KIND_LISTENER)
+	if (!isCurrentContext)
 	{
-		if (success && state.acceptSocket != INVALID_SOCKET)
-		{
-			setsockopt(state.acceptSocket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
-				reinterpret_cast<const char*>(&state.socket), sizeof(state.socket));
+		cleanupContext(*pContext);
+		delete pContext;
+		return;
+	}
 
-			acceptedSockets_[fd].push_back(state.acceptSocket);
-			state.acceptSocket = INVALID_SOCKET;
+	if (pContext->kind == SOCKET_KIND_LISTENER)
+	{
+		if (success && pContext->acceptSocket != INVALID_SOCKET)
+		{
+			setsockopt(pContext->acceptSocket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
+				reinterpret_cast<const char*>(&pContext->socket), sizeof(pContext->socket));
+
+			acceptedSockets_[fd].push_back(pContext->acceptSocket);
+			pContext->acceptSocket = INVALID_SOCKET;
 			this->triggerRead(fd);
 		}
 		else if (!success)
@@ -487,7 +543,9 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 	}
 	else
 	{
-		if (!success && errorCode != 0)
+		// UDP probe reads use a 1-byte MSG_PEEK buffer. A larger datagram
+		// completes as ERROR_MORE_DATA, which still means "socket readable".
+		if (!success && errorCode != 0 && !isUdpProbeMoreData && !isUdpPortUnreachable)
 		{
 			WARNING_MSG(fmt::format("IocpPoller::handleCompletion: read completion failed on fd {}: {}\n",
 				fd, kbe_strerror(errorCode)));
@@ -496,13 +554,21 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 		this->triggerRead(fd);
 	}
 
-	if (state.registeredRead)
+	cleanupContext(*pContext);
+	delete pContext;
+
+	auto currentIter = socketStates_.find(fd);
+	if (currentIter != socketStates_.end())
 	{
-		ensureReadArmed(fd, state);
-	}
-	else
-	{
-		cleanupStateIfUnused(fd);
+		SocketState& currentState = *currentIter->second;
+		if (currentState.registeredRead && currentState.pPendingContext == NULL)
+		{
+			ensureReadArmed(fd, currentState);
+		}
+		else if (!currentState.registeredRead)
+		{
+			cleanupStateIfUnused(fd);
+		}
 	}
 }
 
@@ -511,7 +577,7 @@ int IocpPoller::processPendingEvents(double maxWait)
 {
 	for (auto& item : socketStates_)
 	{
-		if (item.second->registeredRead && !item.second->pendingRead)
+		if (item.second->registeredRead && item.second->pPendingContext == NULL)
 		{
 			ensureReadArmed(item.first, *item.second);
 		}

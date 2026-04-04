@@ -171,7 +171,33 @@ void Machine::onFindInterfaceAddr(Network::Channel* pChannel, int32 uid, std::st
 	{
 		std::vector<int32>::iterator iter = std::find(localuids_.begin(), localuids_.end(), uid);
 		if(iter == localuids_.end())
-			return;
+		{
+			if (uid == KBEngine::getUserUID())
+			{
+				INFO_MSG(fmt::format("Machine::onFindInterfaceAddr: learn current server uid {} before localuids sync.\n",
+					uid));
+
+				localuids_.push_back(uid);
+			}
+			else
+			{
+				const bool isLocalFinder =
+					(finderAddr == this->networkInterface().intTcpAddr().ip) ||
+					(finderAddr == this->networkInterface().extTcpAddr().ip) ||
+					(finderAddr == Network::LOCALHOST) ||
+					(pChannel->addr().ip == this->networkInterface().intTcpAddr().ip) ||
+					(pChannel->addr().ip == this->networkInterface().extTcpAddr().ip) ||
+					(pChannel->addr().ip == Network::LOCALHOST);
+
+				if (!isLocalFinder)
+					return;
+
+				INFO_MSG(fmt::format("Machine::onFindInterfaceAddr: learn newUID {} from local finder {}({}).\n",
+					uid, inet_ntoa((struct in_addr&)finderAddr), ntohs(finderRecvPort)));
+
+				localuids_.push_back(uid);
+			}
+		}
 	}
 
 	INFO_MSG(fmt::format("Machine::onFindInterfaceAddr[{0}]: uid:{1}, username:{2}, "

@@ -39,22 +39,35 @@ private:
 		SOCKET_KIND_LISTENER
 	};
 
+	struct IocpContext
+	{
+		IocpContext(int fdArg, KBESOCKET socketArg, SocketKind kindArg, uint64 generationArg);
+
+		OVERLAPPED overlapped;
+		int fd;
+		KBESOCKET socket;
+		SocketKind kind;
+		uint64 generation;
+		WSABUF buffer;
+		DWORD flags;
+		char probeByte;
+		KBESOCKET acceptSocket;
+		char acceptBuffer[(sizeof(sockaddr_in) + 16) * 2];
+		sockaddr_in udpAddr;
+		int udpAddrLen;
+	};
+
 	struct SocketState
 	{
 		explicit SocketState(KBESOCKET socketArg);
 
-		OVERLAPPED overlapped;
 		KBESOCKET socket;
 		SocketKind kind;
 		bool associated;
 		bool registeredRead;
-		bool pendingRead;
-		KBESOCKET acceptSocket;
+		uint64 generation;
+		IocpContext* pPendingContext;
 		LPFN_ACCEPTEX acceptExFn;
-		char probeByte;
-		char acceptBuffer[(sizeof(sockaddr_in) + 16) * 2];
-		sockaddr_in udpAddr;
-		int udpAddrLen;
 	};
 
 	typedef std::unique_ptr<SocketState> SocketStatePtr;
@@ -64,11 +77,12 @@ private:
 
 	bool ensureAssociated(SocketState& state, int fd);
 	bool ensureReadArmed(int fd, SocketState& state);
-	bool armTcpRead(SocketState& state);
-	bool armUdpRead(SocketState& state);
-	bool armAccept(SocketState& state);
+	bool armTcpRead(int fd, SocketState& state);
+	bool armUdpRead(int fd, SocketState& state);
+	bool armAccept(int fd, SocketState& state);
 	bool tryDetermineSocketKind(KBESOCKET socket, SocketKind& kind) const;
 	bool loadAcceptEx(SocketState& state);
+	void cleanupContext(IocpContext& context);
 	void handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapped, bool success, DWORD errorCode);
 	void cleanupStateIfUnused(int fd);
 	void closeAcceptedSockets(AcceptedSockets& acceptedSockets);
