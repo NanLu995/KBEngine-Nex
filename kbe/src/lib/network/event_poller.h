@@ -15,6 +15,7 @@ namespace Network
 {
 	
 class InputNotificationHandler;
+class IocpPoller;
 typedef std::map<int, InputNotificationHandler *> FDReadHandlers;
 typedef std::map<int, OutputNotificationHandler *> FDWriteHandlers;
 
@@ -33,6 +34,7 @@ public:
 
 	virtual int processPendingEvents(double maxWait) = 0;
 	virtual int getFileDescriptor() const;
+	virtual IocpPoller* asIocpPoller() { return NULL; }
 
 	void clearSpareTime()		{spareTime_ = 0;}
 	uint64 spareTime() const	{return spareTime_;}
@@ -56,6 +58,8 @@ protected:
 	bool isRegistered(int fd, bool isForRead) const;
 
 	int maxFD() const;
+	const FDReadHandlers& fdReadHandlers() const { return fdReadHandlers_; }
+	const FDWriteHandlers& fdWriteHandlers() const { return fdWriteHandlers_; }
 
 private:
 	FDReadHandlers fdReadHandlers_;

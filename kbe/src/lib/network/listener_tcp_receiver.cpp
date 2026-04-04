@@ -12,6 +12,7 @@
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
 #include "network/packet_receiver.h"
+#include "network/poller_iocp.h"
 #include "network/error_reporter.h"
 
 namespace KBEngine { 
@@ -37,7 +38,39 @@ int ListenerTcpReceiver::handleInputNotification(int fd)
 
 	while(tickcount ++ < 256)
 	{
-		EndPoint* pNewEndPoint = endpoint_.accept();
+		EndPoint* pNewEndPoint = NULL;
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+		if (IocpPoller* pIocpPoller = this->dispatcher().pPoller()->asIocpPoller())
+		{
+			KBESOCKET acceptedSocket = INVALID_SOCKET;
+			if (pIocpPoller->takeAcceptedSocket(fd, acceptedSocket))
+			{
+				pNewEndPoint = EndPoint::createPoolObject(OBJECTPOOL_POINT);
+				pNewEndPoint->setFileDescriptor(acceptedSocket);
+				pNewEndPoint->setnonblocking(true);
+				pNewEndPoint->setnodelay(true);
+
+				u_int16_t networkPort = 0;
+				u_int32_t networkAddr = 0;
+				if (pNewEndPoint->getremoteaddress(&networkPort, &networkAddr) == 0)
+				{
+					pNewEndPoint->addr(networkPort, networkAddr);
+				}
+				else
+				{
+					WARNING_MSG(fmt::format("ListenerTcpReceiver::handleInputNotification: getremoteaddress({}) failed: {}\n",
+						fd, kbe_strerror(WSAGetLastError())));
+				}
+			}
+		}
+#endif
+
+		if (pNewEndPoint == NULL)
+		{
+			pNewEndPoint = endpoint_.accept();
+		}
+
 		if(pNewEndPoint == NULL){
 
 			if(tickcount == 1)
