@@ -40,7 +40,7 @@ public:
 
 protected:
 	virtual bool processRecv(bool expectingPacket);
-	PacketReceiver::RecvState checkSocketErrors(int len, bool expectingPacket);
+	PacketReceiver::RecvState checkSocketErrors(int len, bool expectingPacket) override;
 
 	virtual void onGetError(Channel* pChannel, const std::string& err);
 	

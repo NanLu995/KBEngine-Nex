@@ -134,6 +134,8 @@ Reason TCPPacketReceiver::processFilteredPacket(Channel* pChannel, Packet * pPac
 //-------------------------------------------------------------------------------------
 PacketReceiver::RecvState TCPPacketReceiver::checkSocketErrors(int len, bool expectingPacket)
 {
+	Channel* pChannel = getChannel();
+
 #if KBE_PLATFORM == PLATFORM_WIN32
 	DWORD wsaErr = WSAGetLastError();
 #endif //def _WIN32
@@ -173,6 +175,20 @@ PacketReceiver::RecvState TCPPacketReceiver::checkSocketErrors(int len, bool exp
 			"Throwing REASON_GENERAL_NETWORK - WSAECONNRESET\n", (pEndpoint_ ? pEndpoint_->addr().c_str() : "")));
 		return RECV_STATE_INTERRUPT;
 	case WSAECONNABORTED:
+		if (pChannel != NULL &&
+			pChannel->isInternal() &&
+			pChannel->hasHandshake() &&
+			pChannel->componentID() == 0 &&
+			pChannel->numPacketsReceived() == 1 &&
+			pChannel->numBytesReceived() == NETWORK_MESSAGE_ID_SIZE)
+		{
+			INFO_MSG(fmt::format("TCPPacketReceiver::processPendingEvents({}): "
+				"internal fixed-size probe disconnected after first request "
+				"(likely lookApp/queryLoad/reqClose, WSAECONNABORTED).\n",
+				(pEndpoint_ ? pEndpoint_->addr().c_str() : "")));
+			return RECV_STATE_INTERRUPT;
+		}
+
 		WARNING_MSG(fmt::format("TCPPacketReceiver::processPendingEvents({}): "
 			"Throwing REASON_GENERAL_NETWORK - WSAECONNABORTED\n", (pEndpoint_ ? pEndpoint_->addr().c_str() : "")));
 		return RECV_STATE_INTERRUPT;
