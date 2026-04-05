@@ -94,7 +94,11 @@ namespace std
 		using ::std::unordered_map;
 		using ::std::unordered_set;
 		using ::std::weak_ptr;
+#if defined(_MSC_VER) && _MSC_VER < 1700
 		namespace placeholders = ::std::placeholders;
+#elif !defined(_MSC_VER)
+		using namespace ::std::placeholders;
+#endif
 	}
 }
 #endif
