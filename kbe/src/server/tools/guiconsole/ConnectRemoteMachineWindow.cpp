@@ -85,7 +85,7 @@ void CConnectRemoteMachineWindow::OnBnClickedOk()
 {
 	// TODO: Add your control notification handler code here
 	CguiconsoleDlg* dlg = static_cast<CguiconsoleDlg*>(theApp.m_pMainWnd);
-	byte ips[4];
+	BYTE ips[4];
 
 	if (0 == m_ip.GetAddress(ips[0],ips[1],ips[2],ips[3]))
 	{
@@ -404,7 +404,7 @@ void CConnectRemoteMachineWindow::loadIpMapping()
 CString CConnectRemoteMachineWindow::getCurrentHost()
 {
 	CString host;
-	byte ips[4];
+	BYTE ips[4];
 
 	if (0 == m_ip.GetAddress(ips[0], ips[1], ips[2], ips[3]))
 	{
@@ -452,7 +452,7 @@ void CConnectRemoteMachineWindow::OnBnClickedAddIpmapping()
 {
 	// TODO: Add your control notification handler code here
 	CguiconsoleDlg* dlg = static_cast<CguiconsoleDlg*>(theApp.m_pMainWnd);
-	byte lan_ips[4];
+	BYTE lan_ips[4];
 
 	if (0 == m_lan_ip.GetAddress(lan_ips[0], lan_ips[1], lan_ips[2], lan_ips[3]))
 	{
@@ -460,7 +460,7 @@ void CConnectRemoteMachineWindow::OnBnClickedAddIpmapping()
 		return;
 	}
 
-	byte internet_ips[4];
+	BYTE internet_ips[4];
 
 	if (0 == m_internet_ip.GetAddress(internet_ips[0], internet_ips[1], internet_ips[2], internet_ips[3]))
 	{
