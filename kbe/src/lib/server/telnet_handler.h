@@ -127,6 +127,7 @@ private:
 	Network::NetworkInterface* pNetworkInterface_;
 
 	bool getingHistroyCmd_;
+	bool lastWasCR_;
 
 	int clientTermialType_;
 };

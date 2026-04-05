@@ -5,6 +5,7 @@
 #include "telnet_handler.h"
 #include "network/bundle.h"
 #include "network/endpoint.h"
+#include "network/poller_iocp.h"
 #include "network/network_interface.h"
 
 #ifndef CODE_INLINE
@@ -149,8 +150,53 @@ int	TelnetServer::handleInputNotification(int fd)
 
 	while(tickcount ++ < 1024)
 	{
-		Network::EndPoint* pNewEndPoint = listener_.accept();
+		Network::EndPoint* pNewEndPoint = NULL;
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+		if (Network::IocpPoller* pIocpPoller = pDispatcher_->pPoller()->asIocpPoller())
+		{
+			KBESOCKET acceptedSocket = INVALID_SOCKET;
+			if (pIocpPoller->takeAcceptedSocket(fd, acceptedSocket))
+			{
+				pNewEndPoint = Network::EndPoint::createPoolObject(OBJECTPOOL_POINT);
+				pNewEndPoint->setFileDescriptor(acceptedSocket);
+				pNewEndPoint->setnonblocking(true);
+				pNewEndPoint->setnodelay(true);
+
+				u_int16_t networkPort = 0;
+				u_int32_t networkAddr = 0;
+				if (pNewEndPoint->getremoteaddress(&networkPort, &networkAddr) == 0)
+				{
+					pNewEndPoint->addr(networkPort, networkAddr);
+				}
+				else
+				{
+					WARNING_MSG(fmt::format("TelnetServer::handleInputNotification: getremoteaddress({}) failed: {}\n",
+						fd, kbe_strerror(WSAGetLastError())));
+				}
+			}
+		}
+#endif
+
+		if (pNewEndPoint == NULL)
+		{
+			pNewEndPoint = listener_.accept();
+		}
+
 		if(pNewEndPoint == NULL){
+#if KBE_PLATFORM == PLATFORM_WIN32
+			int err = WSAGetLastError();
+			if (err == WSAEWOULDBLOCK || err == WSAEINTR)
+			{
+				break;
+			}
+#else
+			int err = kbe_lasterror();
+			if (err == EAGAIN || err == EWOULDBLOCK || err == EINTR)
+			{
+				break;
+			}
+#endif
 
 			if(tickcount == 1)
 			{
