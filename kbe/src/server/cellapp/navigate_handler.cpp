@@ -171,6 +171,7 @@ namespace KBEngine
 
     //-------------------------------------------------------------------------------------
     bool NavigateHandler::stepMoveOnceWithoutDelete() {
+        
         if (!useDetour_)
             return MoveToPointHandler::stepMoveOnceWithoutDelete();
 
@@ -185,6 +186,13 @@ namespace KBEngine
             requestMoveFailure();
             return false;
         }
+        
+        if ( useDetour_ && navHandle_->type() == NavigationHandle::NAV_TILE)
+        {
+            ERROR_MSG("navigateToDetour does not support 2D.");
+            return false;
+        }
+        
 
 
         Entity* pEntity = pController_->pEntity();
