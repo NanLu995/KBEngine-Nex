@@ -66,11 +66,8 @@ void ClientObject::finalise(void)
 //-------------------------------------------------------------------------------------		
 void ClientObject::reset(void)
 {
-	if(pTCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pTCPPacketReceiverEx_->pEndPoint());
-
-	if (pTCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pTCPPacketReceiverEx_->pEndPoint());
+	deregisterReceiverEndPoint(pTCPPacketReceiverEx_);
+	deregisterReceiverEndPoint(pKCPPacketReceiverEx_);
 
 	if(pServerChannel_ && pServerChannel_->pEndPoint())
 	{
@@ -101,13 +98,39 @@ void ClientObject::reset(void)
 	connectedBaseapp_ = false;
 }
 
+void ClientObject::onNetworkError(const std::string& err)
+{
+	DEBUG_MSG(fmt::format("ClientObject::onNetworkError: {} state={} err={}\n",
+		name_, static_cast<int>(state_), err));
+
+	if (pServerChannel_ != NULL && !pServerChannel_->isDestroyed())
+	{
+		pServerChannel_->destroy();
+		return;
+	}
+
+	destroy();
+}
+
+void ClientObject::deregisterReceiverEndPoint(Network::PacketReceiver* pPacketReceiver)
+{
+	if (pPacketReceiver == NULL || pPacketReceiver->pEndPoint() == NULL)
+	{
+		return;
+	}
+
+	if (!pPacketReceiver->pEndPoint()->good())
+	{
+		return;
+	}
+
+	Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pPacketReceiver->pEndPoint());
+}
+
 void ClientObject::clearStates(void)
 {
-	if (pTCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pTCPPacketReceiverEx_->pEndPoint());
-
-	if (pKCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pKCPPacketReceiverEx_->pEndPoint());
+	deregisterReceiverEndPoint(pTCPPacketReceiverEx_);
+	deregisterReceiverEndPoint(pKCPPacketReceiverEx_);
 
 	pServerChannel_->fina_kcp();
 	pServerChannel_->stopSend();
@@ -210,11 +233,8 @@ bool ClientObject::initLoginBaseapp()
 {
 	clearStates();
 
-	if(pTCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pTCPPacketReceiverEx_->pEndPoint());
-
-	if (pKCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pKCPPacketReceiverEx_->pEndPoint());
+	deregisterReceiverEndPoint(pTCPPacketReceiverEx_);
+	deregisterReceiverEndPoint(pKCPPacketReceiverEx_);
 
 	pServerChannel_->fina_kcp();
 	pServerChannel_->stopSend();

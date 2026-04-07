@@ -52,6 +52,7 @@ public:
 	virtual void reset(void);
 
 	void clearStates(void);
+	void deregisterReceiverEndPoint(Network::PacketReceiver* pPacketReceiver);
 
 	bool initCreate();
 	bool initLoginBaseapp();
@@ -62,6 +63,7 @@ public:
 
 	bool isDestroyed() { return state_ == C_STATE_DESTROYED; }
 	void destroy() { state_ = C_STATE_DESTROYED; }
+	void onNetworkError(const std::string& err);
 
 	virtual void onHelloCB_(Network::Channel* pChannel, const std::string& verInfo,
 		const std::string& scriptVerInfo, const std::string& protocolMD5, 
