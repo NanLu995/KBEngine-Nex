@@ -50,26 +50,6 @@ public:
 
 	virtual int raycast(int layer, const Position3D& start, const Position3D& end, std::vector<Position3D>& hitPointVec) = 0;
 
-	virtual dtPolyRef findNearestPoly(
-		int layer,
-		const Position3D& pos,
-		Position3D* nearestPt = nullptr
-	) = 0;
-
-	virtual bool moveAlongSurface(
-		int layer,
-		dtPolyRef& inoutPoly,
-		const Position3D& start,
-		const Position3D& end,
-		Position3D& outPos
-	) = 0;
-
-	virtual float getPolyHeight(
-		int layer,
-		dtPolyRef poly,
-		const Position3D& pos
-	) = 0;
-
 	std::string resPath;
 };
 

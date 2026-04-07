@@ -108,9 +108,12 @@ namespace KBEngine
         if (!navHandle_)
             return false;
 
+        KBE_ASSERT(navHandle_->type() == NavigationHandle::NAV_MESH);
+        NavMeshHandle* navMeshHandle = static_cast<NavMeshHandle*>(navHandle_.get());
+
         straightPath_.clear();
 
-        int n = navHandle_->findStraightPath(
+        int n = navMeshHandle->findStraightPath(
             layer_,
             currPos,
             destPos_,
@@ -123,7 +126,7 @@ namespace KBEngine
         pathValid_ = true;
 
         // 初始化 polyRef
-        polyRef_ = navHandle_->findNearestPoly(layer_, currPos, nullptr);
+        polyRef_ = navMeshHandle->findNearestPoly(layer_, currPos, nullptr);
         return polyRef_ != NavMeshHandle::INVALID_NAVMESH_POLYREF;
     }
 
@@ -192,6 +195,8 @@ namespace KBEngine
             ERROR_MSG("navigateToDetour does not support 2D.");
             return false;
         }
+
+        NavMeshHandle* navMeshHandle = static_cast<NavMeshHandle*>(navHandle_.get());
         
 
 
@@ -311,7 +316,7 @@ namespace KBEngine
         // 3. moveAlongSurface
         // -----------------------------
         Position3D nextPos;
-        bool moved = navHandle_->moveAlongSurface(
+        bool moved = navMeshHandle->moveAlongSurface(
             layer_,
             polyRef_,
             currPos,
@@ -337,7 +342,7 @@ namespace KBEngine
             return true;
         }
 
-        float h = navHandle_->getPolyHeight(layer_, polyRef_, nextPos);
+        float h = navMeshHandle->getPolyHeight(layer_, polyRef_, nextPos);
 
         if (h <= -FLT_MAX) // 或你引擎里的无效值判断
         {

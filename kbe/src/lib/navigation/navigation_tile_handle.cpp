@@ -13,22 +13,6 @@ NavTileHandle::MapSearchNode NavTileHandle::nodeGoal;
 NavTileHandle::MapSearchNode NavTileHandle::nodeStart;
 AStarSearch<NavTileHandle::MapSearchNode> NavTileHandle::astarsearch;
 
-dtPolyRef NavTileHandle::findNearestPoly(int layer, const Position3D& pos, Position3D* nearestPt)
-{
-	return 0;
-}
-
-bool NavTileHandle::moveAlongSurface(int layer, dtPolyRef& inoutPoly, const Position3D& start, const Position3D& end,
-	Position3D& outPos)
-{
-	return false;
-}
-
-float NavTileHandle::getPolyHeight(int layer, dtPolyRef poly, const Position3D& pos)
-{
-	return 0;
-}
-
 #define DEBUG_LISTS 0
 #define DEBUG_LIST_LENGTHS_ONLY 0
 
