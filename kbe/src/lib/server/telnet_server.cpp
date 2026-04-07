@@ -153,7 +153,7 @@ int	TelnetServer::handleInputNotification(int fd)
 		Network::EndPoint* pNewEndPoint = NULL;
 
 #if KBE_PLATFORM == PLATFORM_WIN32
-		if (Network::IocpPoller* pIocpPoller = pDispatcher_->pPoller()->asIocpPoller())
+		if (Network::IocpPoller* pIocpPoller = dynamic_cast<Network::IocpPoller*>(pDispatcher_->pPoller()))
 		{
 			KBESOCKET acceptedSocket = INVALID_SOCKET;
 			if (pIocpPoller->takeAcceptedSocket(fd, acceptedSocket))

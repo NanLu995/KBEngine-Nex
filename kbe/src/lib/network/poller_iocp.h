@@ -17,8 +17,6 @@ public:
 	IocpPoller();
 	~IocpPoller() override;
 
-	IocpPoller* asIocpPoller() override { return this; }
-
 	int processPendingEvents(double maxWait) override;
 
 	bool takeAcceptedSocket(int fd, KBESOCKET& acceptedSocket);

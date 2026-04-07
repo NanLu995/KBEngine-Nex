@@ -41,7 +41,7 @@ int ListenerTcpReceiver::handleInputNotification(int fd)
 		EndPoint* pNewEndPoint = NULL;
 
 #if KBE_PLATFORM == PLATFORM_WIN32
-		if (IocpPoller* pIocpPoller = this->dispatcher().pPoller()->asIocpPoller())
+		if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
 		{
 			KBESOCKET acceptedSocket = INVALID_SOCKET;
 			if (pIocpPoller->takeAcceptedSocket(fd, acceptedSocket))

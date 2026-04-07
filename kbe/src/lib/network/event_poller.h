@@ -34,7 +34,6 @@ public:
 
 	virtual int processPendingEvents(double maxWait) = 0;
 	virtual int getFileDescriptor() const;
-	virtual IocpPoller* asIocpPoller() { return NULL; }
 
 	void clearSpareTime()		{spareTime_ = 0;}
 	uint64 spareTime() const	{return spareTime_;}
