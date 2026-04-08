@@ -1581,6 +1581,12 @@ void Entity::onMigrationCellappStart(Network::Channel* pChannel, COMPONENT_ID so
 
 		KBE_ASSERT(pBufferedSendToClientMessages_);
 		pBufferedSendToClientMessages_->startForward();
+
+		if (pBufferedSendToClientMessages_ &&
+			pBufferedSendToClientMessages_->bufferedMessagesSize() == 0)
+		{
+			onBufferedForwardToClientMessagesOver();
+		}
 	}
 	else
 	{
@@ -1597,7 +1603,17 @@ void Entity::onMigrationCellappEnd(Network::Channel* pChannel, COMPONENT_ID sour
 	DEBUG_MSG(fmt::format("{}::onMigrationCellappEnd: {}, sourceCellAppID={}, targetCellappID={}\n",
 		scriptName(), id(), sourceCellAppID, targetCellAppID));
 
-	KBE_ASSERT(!pBufferedSendToClientMessages_);
+	if (pBufferedSendToClientMessages_)
+	{
+		WARNING_MSG(fmt::format(
+			"{}::onMigrationCellappEnd: {}, sourceCellAppID={}, targetCellappID={}, "
+			"bufferedTargetCellappID={}, bufferedClientMessages={}\n",
+			scriptName(), id(), sourceCellAppID, targetCellAppID,
+			pBufferedSendToClientMessages_->cellappID(),
+			pBufferedSendToClientMessages_->bufferedMessagesSize()));
+
+		pBufferedSendToClientMessages_->cellappID(targetCellAppID);
+	}
 	
 	// 某些极端情况下可能onMigrationCellappStart会慢于onMigrationCellappEnd触发，此时必须设置标记
 	// 等待onMigrationCellappEnd触发后做清理
@@ -1613,7 +1629,20 @@ void Entity::onMigrationCellappEnd(Network::Channel* pChannel, COMPONENT_ID sour
 	else
 	{
 		removeFlags(ENTITY_FLAGS_TELEPORT_START);
-		onMigrationCellappOver(targetCellAppID);
+
+		if (pBufferedSendToClientMessages_)
+		{
+			pBufferedSendToClientMessages_->startForward();
+
+			if (pBufferedSendToClientMessages_->bufferedMessagesSize() == 0)
+			{
+				onBufferedForwardToClientMessagesOver();
+			}
+		}
+		else
+		{
+			onMigrationCellappOver(targetCellAppID);
+		}
 	}
 }
 
