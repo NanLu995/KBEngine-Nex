@@ -1225,7 +1225,7 @@ bool Components::findComponents()
 #endif
 			}
 
-			const int maxReceiveAttempts = 3;
+			const int maxReceiveAttempts = 10;
 			bool advanceFindIdx = false;
 
 			for (int findAttempt = 0; findAttempt < maxReceiveAttempts; ++findAttempt)
