@@ -34,6 +34,43 @@
 #include "bots_active_report_handler.h"
 
 namespace KBEngine{
+namespace
+{
+bool triggerCrashTestIfNeeded()
+{
+	const char* crashType = getenv("KBE_BOTS_CRASH_TEST");
+	if (crashType == NULL || crashType[0] == '\0')
+		return false;
+
+	CRITICAL_MSG(fmt::format("Bots crash test triggered: {}\n", crashType));
+	DebugHelper::getSingleton().finalise();
+
+	if (kbe_stricmp(crashType, "seh") == 0)
+	{
+#if KBE_PLATFORM == PLATFORM_WIN32
+		::RaiseException(EXCEPTION_ACCESS_VIOLATION, EXCEPTION_NONCONTINUABLE, 0, NULL);
+#else
+		volatile int* p = 0;
+		*p = 1;
+#endif
+	}
+	else if (kbe_stricmp(crashType, "sigabrt") == 0)
+	{
+		raise(SIGABRT);
+	}
+	else if (kbe_stricmp(crashType, "abort") == 0)
+	{
+		abort();
+	}
+	else
+	{
+		ERROR_MSG(fmt::format("Bots crash test type '{}' is unsupported. Use seh|sigabrt|abort.\n", crashType));
+		return false;
+	}
+
+	return true;
+}
+}
 
 //-------------------------------------------------------------------------------------
 Bots::Bots(Network::EventDispatcher& dispatcher, 
@@ -129,6 +166,7 @@ bool Bots::initializeEnd()
 		return false;
 	}
 
+	triggerCrashTestIfNeeded();
 	return true;
 }
 
@@ -297,6 +335,17 @@ bool Bots::run(void)
 void Bots::handleTimeout(TimerHandle handle, void * arg)
 {
 	ClientApp::handleTimeout(handle, arg);
+}
+
+//-------------------------------------------------------------------------------------
+void Bots::onChannelDeregister(Network::Channel * pChannel)
+{
+	if (pChannel->isInternal())
+	{
+		Components::getSingleton().onChannelDeregister(pChannel, false);
+	}
+
+	ClientApp::onChannelDeregister(pChannel);
 }
 
 //-------------------------------------------------------------------------------------

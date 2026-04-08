@@ -154,6 +154,9 @@ int kbeMainT(int argc, char * argv[], COMPONENT_TYPE componentType,
 	startLeakDetection(componentType, g_componentID);
 
 	g_componentType = componentType;
+#if KBE_PLATFORM == PLATFORM_WIN32
+	KBEngine::exception::installCrashHandler(COMPONENT_NAME_EX(componentType), g_componentID);
+#endif
 	DebugHelper::initialize(componentType);
 
 	INFO_MSG( "-----------------------------------------------------------------------------------------\n\n\n");
@@ -374,14 +377,13 @@ inline void parseMainCommandArgs(int argc, char* argv[])
 kbeMain(int argc, char* argv[]);																						\
 int main(int argc, char* argv[])																						\
 {																														\
+	KBEngine::exception::installCrashHandler("bootstrap", g_componentID);												\
+	int retcode = -1;																									\
+	THREAD_TRY_EXECUTION;																								\
 	loadConfig();																										\
 	g_componentID = genUUID64();																						\
 	parseMainCommandArgs(argc, argv);																					\
-	char dumpname[MAX_BUF] = {0};																						\
-	kbe_snprintf(dumpname, MAX_BUF, "%" PRAppID, g_componentID);														\
-	KBEngine::exception::installCrashHandler(1, dumpname);																\
-	int retcode = -1;																									\
-	THREAD_TRY_EXECUTION;																								\
+	KBEngine::exception::installCrashHandler("bootstrap", g_componentID);												\
 	retcode = kbeMain(argc, argv);																						\
 	THREAD_HANDLE_CRASH;																								\
 	return retcode;																										\

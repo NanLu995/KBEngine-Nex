@@ -5,15 +5,16 @@
 	
 // common include	
 //#define NDEBUG
+#include "common/common.h"
 // windows include	
 #ifdef WIN32
-#include "common/common.h"
 #include <windows.h>
 #include <tchar.h>
 #include <dbghelp.h>
 #include <stdio.h>
 #include <crtdbg.h>
 #include <time.h> 
+#include <exception>
 #pragma comment (lib, "dbghelp.lib")
 #else
 // linux include
@@ -22,7 +23,11 @@
 	
 namespace KBEngine{ namespace exception {
 /** 安装 */
-void installCrashHandler(int svnVer, const char* dumpType);
+void installCrashHandler(const char* dumpType, COMPONENT_ID componentID);
+
+#ifdef WIN32
+/** 处理SEH异常并生成崩溃文件 */
+LONG WINAPI handleStructuredException(EXCEPTION_POINTERS* pep);
 
 /** 创建dump文件函数 */
 void createMiniDump(EXCEPTION_POINTERS* pep ); 
@@ -33,6 +38,7 @@ BOOL CALLBACK dumpCallback(
 	const PMINIDUMP_CALLBACK_INPUT   pInput, 
 	PMINIDUMP_CALLBACK_OUTPUT        pOutput 
 ); 
+#endif
 
 #ifndef _DEBUG
 	/** 在要截获crash的代码最开始的地方写上这个宏 */
@@ -40,12 +46,8 @@ BOOL CALLBACK dumpCallback(
 								__try{
 		
 	/** 在要截获crash的代码最末尾的地方写上这个宏 */
-	#define THREAD_HANDLE_CRASH  }__except(exceptionCode = GetExceptionCode(), KBEngine::exception::createMiniDump(GetExceptionInformation()),						\
-															EXCEPTION_EXECUTE_HANDLER) {																			\
-									printf("%x\n", exceptionCode);																									\
-									wchar_t msg[512];																												\
-									wsprintf(msg, L"Exception happened. Exception code is %x.", exceptionCode);														\
-									MessageBox(NULL, msg, L"Exception", MB_OK);																						\
+	#define THREAD_HANDLE_CRASH  }__except(exceptionCode = GetExceptionCode(), KBEngine::exception::handleStructuredException(GetExceptionInformation())) {			\
+									printf("Unhandled SEH exception: 0x%08X\n", exceptionCode);																		\
 								}
 #else
 	#define THREAD_TRY_EXECUTION 

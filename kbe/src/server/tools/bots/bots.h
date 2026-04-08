@@ -69,6 +69,7 @@ public:
 
 	virtual void handleTimeout(TimerHandle, void * pUser);
 	virtual void handleGameTick();
+	virtual void onChannelDeregister(Network::Channel * pChannel);
 
 	static Bots& getSingleton(){ 
 		return *static_cast<Bots*>(ClientApp::getSingletonPtr()); 
