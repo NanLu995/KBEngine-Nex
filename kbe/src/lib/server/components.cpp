@@ -1354,8 +1354,8 @@ RESTART_RECV:
 						continue;
 					}
 
-					ERROR_MSG(fmt::format("Components::findComponents: receive error while finding {} after {} attempts.\n",
-						COMPONENT_NAME_EX((COMPONENT_TYPE)findComponentType), maxReceiveAttempts));
+					// ERROR_MSG(fmt::format("Components::findComponents: receive error while finding {} after {} attempts.\n",
+					// 	COMPONENT_NAME_EX((COMPONENT_TYPE)findComponentType), maxReceiveAttempts));
 
 					// 如果是这些辅助组件没找到则跳过
 					int helperComponentIdx = 0;
