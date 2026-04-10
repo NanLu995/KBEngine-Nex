@@ -126,7 +126,6 @@ currPos_(0),
 pProfileHandler_(NULL),
 pNetworkInterface_(pNetworkInterface),
 getingHistroyCmd_(false),
-lastWasCR_(false),
 clientTermialType_(0)
 {
 }
@@ -291,15 +290,6 @@ void TelnetHandler::onRecvInput(const char *buffer, int size)
 	while (idx < size)
 	{
 		char c = buffer[idx++];
-
-		if (lastWasCR_ && c == '\n')
-		{
-			lastWasCR_ = false;
-			continue;
-		}
-
-		lastWasCR_ = false;
-
 		switch (c)
 		{
 		case '\r':
@@ -324,19 +314,6 @@ void TelnetHandler::onRecvInput(const char *buffer, int size)
 			{
 				return;
 			}
-
-			lastWasCR_ = isEnter;
-			break;
-		}
-		case '\n':
-		{
-			getingHistroyCmd_ = false;
-
-			if (!processCommand())
-			{
-				return;
-			}
-
 			break;
 		}
 		case 8:		// 退格
