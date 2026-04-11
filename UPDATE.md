@@ -3,18 +3,18 @@
 
 
 ## 2.8.1
-- [feat] 优化掉所有的Warning [Issue #133](https://github.com/KBEngineLab/KBEngine-Nex/issues/133)
-- c++升级到兼容17/20 [Issue #132](https://github.com/KBEngineLab/KBEngine-Nex/issues/132)
-- rider支持，目前仅支持windows [Issue #135](https://github.com/KBEngineLab/KBEngine-Nex/issues/135)
-- cmake 编译器切换到ninja ，加速编译 [Issue #142](https://github.com/KBEngineLab/KBEngine-Nex/issues/142)
-- Apple Silicon支持 [Issue #37](https://github.com/KBEngineLab/KBEngine-Nex/issues/37)
-- macos io多路复用 kqueue [Issue #139](https://github.com/KBEngineLab/KBEngine-Nex/issues/139)
-- kbex macos支持 [Issue #141](https://github.com/KBEngineLab/KBEngine-Nex/issues/141)
-- 给 c++层的 Python Map 增加 clear， pop 成员函数 [Issue #129](https://github.com/KBEngineLab/KBEngine-Nex/issues/129)
-- windows select替换为IOCP [Issue #136](https://github.com/KBEngineLab/KBEngine-Nex/issues/136)
-- win server 异常退出时生成dump信息 [Issue #155](https://github.com/KBEngineLab/KBEngine-Nex/issues/155)
-- kbex 进程管理优化 https://www.kbelab.com/kbenginex/home.html [Issue #122](https://github.com/KBEngineLab/KBEngine-Nex/issues/122)
-- kbex 可视化功能添加 https://www.kbelab.com/kbenginex/home.html [Issue #123](https://github.com/KBEngineLab/KBEngine-Nex/issues/123)
+- [perf] 优化掉所有的Warning [Issue #133](https://github.com/KBEngineLab/KBEngine-Nex/issues/133)
+- [perf] c++升级到兼容17/20 [Issue #132](https://github.com/KBEngineLab/KBEngine-Nex/issues/132)
+- [feat] rider支持，目前仅支持windows [Issue #135](https://github.com/KBEngineLab/KBEngine-Nex/issues/135)
+- [feat] cmake 编译器切换到ninja ，加速编译 [Issue #142](https://github.com/KBEngineLab/KBEngine-Nex/issues/142)
+- [feat] Apple Silicon支持 [Issue #37](https://github.com/KBEngineLab/KBEngine-Nex/issues/37)
+- [feat] macos io多路复用 kqueue [Issue #139](https://github.com/KBEngineLab/KBEngine-Nex/issues/139)
+- [feat] kbex macos支持 [Issue #141](https://github.com/KBEngineLab/KBEngine-Nex/issues/141)
+- [perf] 给 c++层的 Python Map 增加 clear， pop 成员函数 [Issue #129](https://github.com/KBEngineLab/KBEngine-Nex/issues/129)
+- [feat] windows select替换为IOCP [Issue #136](https://github.com/KBEngineLab/KBEngine-Nex/issues/136)
+- [feat] win server 异常退出时生成dump信息 [Issue #155](https://github.com/KBEngineLab/KBEngine-Nex/issues/155)
+- [feat] kbex 进程管理优化 https://www.kbelab.com/kbenginex/home.html [Issue #122](https://github.com/KBEngineLab/KBEngine-Nex/issues/122)
+- [feat] kbex 可视化功能添加 https://www.kbelab.com/kbenginex/home.html [Issue #123](https://github.com/KBEngineLab/KBEngine-Nex/issues/123)
 
 ## 2.7.4
 - [feat] NavMesh Generator 添加了一个坐标配置管理器
