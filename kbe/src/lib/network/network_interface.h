@@ -89,6 +89,7 @@ private:
 	virtual void handleTimeout(TimerHandle handle, void * arg);
 
 	void closeSocket();
+	void cleanupDestroyedChannel(ChannelMap::iterator iter);
 
 private:
 	EndPoint								extTcpEndpoint_, extUdpEndpoint_, intTcpEndpoint_;

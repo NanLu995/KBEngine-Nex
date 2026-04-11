@@ -123,13 +123,28 @@ bool UDPPacketReceiver::processRecv(bool expectingPacket)
 	
 	KBE_ASSERT(pSrcChannel != NULL);
 
+	if (pSrcChannel->isDestroyed())
+	{
+		UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
+		return false;
+	}
+
 	if (pSrcChannel->condemn() > 0)
 	{
 		UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
 		return false;
 	}
-	
-	return ((UDPPacketReceiver*)pSrcChannel->pPacketReceiver())->processRecv(pChannelReceiveWindow);
+
+	PacketReceiver* pPacketReceiver = pSrcChannel->pPacketReceiver();
+	if (pPacketReceiver == NULL || pPacketReceiver->type() != PacketReceiver::UDP_PACKET_RECEIVER)
+	{
+		ERROR_MSG(fmt::format("UDPPacketReceiver::processRecv: invalid packet receiver on channel {}.\n",
+			pSrcChannel->c_str()));
+		UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
+		return false;
+	}
+
+	return static_cast<UDPPacketReceiver*>(pPacketReceiver)->processRecv(pChannelReceiveWindow);
 }
 
 //-------------------------------------------------------------------------------------

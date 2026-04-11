@@ -134,6 +134,30 @@ void NetworkInterface::closeSocket()
 }
 
 //-------------------------------------------------------------------------------------
+void NetworkInterface::cleanupDestroyedChannel(ChannelMap::iterator iter)
+{
+	Channel* pChannel = iter->second;
+	channelMap_.erase(iter);
+
+	if (pChannel == NULL)
+	{
+		return;
+	}
+
+	if (pChannel->isExternal())
+	{
+		--numExtChannels_;
+	}
+
+	if (pChannelDeregisterHandler_)
+	{
+		pChannelDeregisterHandler_->onChannelDeregister(pChannel);
+	}
+
+	Network::Channel::reclaimPoolObject(pChannel);
+}
+
+//-------------------------------------------------------------------------------------
 bool NetworkInterface::initialize(const char* pEndPointName, uint16 listeningPort_min, uint16 listeningPort_max,
 										const char * listeningInterface, EndPoint* pEP, ListenerReceiver* pLR, uint32 rbuffer, 
 										uint32 wbuffer)
@@ -324,7 +348,18 @@ Channel * NetworkInterface::findChannel(const Address & addr)
 		return NULL;
 
 	ChannelMap::iterator iter = channelMap_.find(addr);
-	Channel * pChannel = (iter != channelMap_.end()) ? iter->second : NULL;
+	if (iter == channelMap_.end())
+	{
+		return NULL;
+	}
+
+	Channel * pChannel = iter->second;
+	if (pChannel != NULL && pChannel->isDestroyed())
+	{
+		cleanupDestroyedChannel(iter);
+		return NULL;
+	}
+
 	return pChannel;
 }
 
@@ -438,7 +473,8 @@ void NetworkInterface::processChannels(KBEngine::Network::MessageHandlers* pMsgH
 
 		if(pChannel->isDestroyed())
 		{
-			++iter;
+			ChannelMap::iterator current = iter++;
+			cleanupDestroyedChannel(current);
 		}
 		else if(pChannel->condemn() > 0)
 		{
