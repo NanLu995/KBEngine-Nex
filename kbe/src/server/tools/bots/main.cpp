@@ -70,7 +70,7 @@ void installBotsCrashTestEnv(int argc, char* argv[])
 
 		std::string crashType = cmd.substr(pos + prefix.size());
 		if (!crashType.empty())
-			setenv("KBE_BOTS_CRASH_TEST", crashType, 1);
+			setenv("KBE_BOTS_CRASH_TEST", crashType.c_str(), 1);
 
 		return;
 	}
