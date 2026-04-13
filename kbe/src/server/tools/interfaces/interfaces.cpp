@@ -189,13 +189,17 @@ bool Interfaces::initializeEnd()
 							reinterpret_cast<void *>(TIMEOUT_TICK));
 
 
-	// 添加一个timer用于python解释器保活
-	PyObject* dispatcherMod = PyImport_ImportModule("async_dispatcher");
-	PyObject* submitFunc = PyObject_GetAttrString(dispatcherMod, "onAsyncTimer");
+	if (g_kbeSrvConfig.asyncioRepeatOffset() <= 0.f)
+	{
+		// 添加一个timer用于python解释器保活
+		PyObject* dispatcherMod = PyImport_ImportModule("async_dispatcher");
+		PyObject* submitFunc = PyObject_GetAttrString(dispatcherMod, "onAsyncTimer");
 
-	ScriptTimers* pTimers = &asyncTimerTimers_;
-	AsyncTimerHandler* handler = new AsyncTimerHandler(pTimers, submitFunc);
-	ScriptTimersUtil::addTimer(&pTimers, 0.1f, g_kbeSrvConfig.asyncioRepeatOffset(), 0, handler);
+		ScriptTimers* pTimers = &asyncTimerTimers_;
+		AsyncTimerHandler* handler = new AsyncTimerHandler(pTimers, submitFunc);
+		ScriptTimersUtil::addTimer(&pTimers, 0.1f, g_kbeSrvConfig.asyncioRepeatOffset(), 0, handler);
+	}
+	
 
 	// 不做频道超时检查
 	CLOSE_CHANNEL_INACTIVITIY_DETECTION();

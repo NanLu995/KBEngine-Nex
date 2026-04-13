@@ -324,12 +324,16 @@ bool Cellapp::initializeEnd()
 
 	pWitnessedTimeoutHandler_ = new WitnessedTimeoutHandler();
 
-	PyObject* dispatcherMod = PyImport_ImportModule("async_dispatcher");
-	PyObject* submitFunc = PyObject_GetAttrString(dispatcherMod, "onAsyncTimer");
+	if (g_kbeSrvConfig.asyncioRepeatOffset() <= 0.f)
+	{
+		PyObject* dispatcherMod = PyImport_ImportModule("async_dispatcher");
+		PyObject* submitFunc = PyObject_GetAttrString(dispatcherMod, "onAsyncTimer");
 
-	ScriptTimers* pTimers = &asyncTimerTimers_;
-	AsyncTimerHandler* handler = new AsyncTimerHandler(pTimers, submitFunc);
-	ScriptTimersUtil::addTimer(&pTimers, 0.1f, g_kbeSrvConfig.asyncioRepeatOffset(), 0, handler);
+		ScriptTimers* pTimers = &asyncTimerTimers_;
+		AsyncTimerHandler* handler = new AsyncTimerHandler(pTimers, submitFunc);
+		ScriptTimersUtil::addTimer(&pTimers, 0.1f, g_kbeSrvConfig.asyncioRepeatOffset(), 0, handler);
+	}
+	
 
 	// 是否管理Y轴
 	CoordinateSystem::hasY = g_kbeSrvConfig.getCellApp().coordinateSystem_hasY;

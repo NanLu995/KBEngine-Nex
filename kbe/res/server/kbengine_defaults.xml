@@ -5,7 +5,7 @@
 	<gameUpdateHertz> 10 </gameUpdateHertz>
 	
 	<!-- asyncio调度频率（秒） -->
-	<asyncioRepeatOffset> 0.1 </asyncioRepeatOffset>
+	<asyncioRepeatOffset> 0 </asyncioRepeatOffset>
 	
 	<!-- 每秒发送到客户端的带宽限制(bit) 
 		(The data sent to the client, the second bandwidth limit (bit))
