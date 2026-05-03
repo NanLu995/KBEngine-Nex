@@ -205,6 +205,8 @@ namespace KBEngine
 
         Position3D currPos = pEntity->position();
         Position3D oldPos = currPos;
+        
+        pEntity->isOnNavigate(true);
 
         // 建路
         if (!pathValid_)
@@ -216,7 +218,7 @@ namespace KBEngine
                 if (retryCount_ > 5)
                 {
                     requestMoveFailure();
-                    pEntity->isOnNavigate(false);
+                    // pEntity->isOnNavigate(false);
                     Py_DECREF(pEntity);
                     return false;
                 }
@@ -230,7 +232,7 @@ namespace KBEngine
         if (straightPath_.empty())
         {
             requestMoveOver(oldPos);
-            pEntity->isOnNavigate(false);
+            // pEntity->isOnNavigate(false);
             Py_DECREF(pEntity);
             return false;
         }
@@ -278,7 +280,7 @@ namespace KBEngine
             if (currentPathIndex_ >= (int)straightPath_.size())
             {
                 requestMoveOver(currPos);
-                pEntity->isOnNavigate(false);
+                // pEntity->isOnNavigate(false);
                 Py_DECREF(pEntity);
                 return false;
             }
@@ -332,7 +334,7 @@ namespace KBEngine
                 ERROR_MSG("NavigateHandler::update: move failed too many times\n");
 
                 requestMoveFailure();
-                pEntity->isOnNavigate(false);
+                // pEntity->isOnNavigate(false);
                 Py_DECREF(pEntity);
                 return false;
             }
@@ -365,8 +367,7 @@ namespace KBEngine
         if (!isDestroyed_)
             pEntity->isOnGround(true);
 
-        if (!isDestroyed_)
-            pEntity->isOnNavigate(true);
+        
 
         //pEntity->isOnGround(true);
         if (!isDestroyed_)
@@ -379,7 +380,7 @@ namespace KBEngine
         if (isDestroyed_ || sqrDistToDest <= distance_ * distance_)
         {
 
-            pEntity->isOnNavigate(false);
+            // pEntity->isOnNavigate(false);
             requestMoveOver(nextPos);
             Py_DECREF(pEntity);
             return false;

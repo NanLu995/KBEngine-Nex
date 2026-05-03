@@ -965,7 +965,7 @@ void Witness::addUpdateToStream(Network::Bundle* pForwardBundle, uint32 flags, E
 	{
 		isOptimized = false;
 	} 
-	
+
 	if (isOptimized)
 	{
 		switch (flags)
