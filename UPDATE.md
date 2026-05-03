@@ -15,6 +15,7 @@
 - [feat] win server 异常退出时生成dump信息 [Issue #155](https://github.com/KBEngineLab/KBEngine-Nex/issues/155)
 - [feat] kbex 进程管理优化 https://www.kbelab.com/kbenginex/home.html [Issue #122](https://github.com/KBEngineLab/KBEngine-Nex/issues/122)
 - [feat] kbex 可视化功能添加 https://www.kbelab.com/kbenginex/home.html [Issue #123](https://github.com/KBEngineLab/KBEngine-Nex/issues/123)
+- [feat] 兔子世界案例迁移到Nex https://github.com/KBEngineLab/demo_kbengine_unity_rabbit
 
 ## 2.7.4
 - [feat] NavMesh Generator 添加了一个坐标配置管理器
