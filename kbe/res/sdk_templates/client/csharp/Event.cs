@@ -259,10 +259,22 @@ namespace KBEngine
     };
 
     /// <summary>
-    /// 事件模块: KBEngine插件层与Unity3D表现层通过事件来交互，特别是在多线程模式下较方便
+    /// 事件模块。
+    /// <para>KBEngine 插件层与 Unity3D 表现层通过事件进行解耦交互。</para>
+    /// <para>事件分为 out 和 in 两个方向：</para>
+    /// <para>out = KBE 插件层 -> Unity 表现层。常用于网络层、实体层收到服务器消息后通知 UI 或业务逻辑。</para>
+    /// <para>in = Unity 表现层 -> KBE 插件层。常用于 UI 点击登录、创建账号、登出等操作后通知插件层组包并发送到服务器。</para>
+    /// <para>暂停语义：pause/resume 只控制 out 事件的即时执行和 out 队列消费；processInEvents 不受 pause 控制。</para>
+    /// <para>队列语义：fire 时会按当前监听者生成 EventObj 快照，放入 fired 队列；process 时先搬到 doing 队列再执行，避免处理过程中再次 fire 导致重入顺序混乱。</para>
 	/// </summary>
     public class Event
     {
+        /// <summary>
+        /// 单个事件监听项。
+        /// <para>obj 是回调所属对象。</para>
+        /// <para>funcname 是回调函数名，用于注销和日志输出。</para>
+        /// <para>method 是通过反射找到的 MethodInfo，真正触发事件时会 Invoke 它。</para>
+        /// </summary>
 		public struct Pair
 		{
 			public object obj;
@@ -270,6 +282,12 @@ namespace KBEngine
 			public System.Reflection.MethodInfo method;
         };
 		
+        /// <summary>
+        /// 已触发但尚未执行的事件对象。
+        /// <para>info 保存某一个具体监听者。</para>
+        /// <para>eventname 和 args 保存触发时的事件名与参数。</para>
+        /// <para>这里按监听者入队，而不是只按事件名入队；这样可以固定触发瞬间的监听者快照。</para>
+        /// </summary>
 		public struct EventObj
 		{
 			public Pair info;
@@ -277,24 +295,66 @@ namespace KBEngine
             public object[] args;
 		};
 		
+        /// <summary>
+        /// out 事件注册表。
+        /// <para>key 是事件名，value 是监听该事件的所有回调。</para>
+        /// <para>out = KBE 插件层 -> Unity 表现层。</para>
+        /// </summary>
     	static Dictionary<string, List<Pair>> events_out = new Dictionary<string, List<Pair>>();
 		
+        /// <summary>
+        /// out 事件是否尽量立即执行。
+        /// <para>true：fireOut 在未 pause 时直接调用监听者。</para>
+        /// <para>false：fireOut 总是进入 firedEvents_out，等待 processOutEvents 统一处理。</para>
+        /// <para>注意：即使为 true，只要当前处于 pause 状态，out 事件仍会入队。</para>
+        /// </summary>
 		public static bool outEventsImmediately = true;
 
+        /// <summary>
+        /// out 事件待处理队列。fireOut 被暂停或要求延迟执行时，事件先进入这里。
+        /// </summary>
 		static LinkedList<EventObj> firedEvents_out = new LinkedList<EventObj>();
+
+        /// <summary>
+        /// out 事件正在处理队列。
+        /// <para>processOutEvents 会先把 firedEvents_out 搬到 doingEvents_out，再逐个执行。</para>
+        /// <para>执行过程中再次 fireOut 的事件会留在 firedEvents_out，下一轮再执行。</para>
+        /// </summary>
 		static LinkedList<EventObj> doingEvents_out = new LinkedList<EventObj>();
 		
+        /// <summary>
+        /// in 事件注册表。
+        /// <para>key 是事件名，value 是监听该事件的所有回调。</para>
+        /// <para>in = Unity 表现层 -> KBE 插件层。</para>
+        /// </summary>
     	static Dictionary<string, List<Pair>> events_in = new Dictionary<string, List<Pair>>();
 		
+        /// <summary>
+        /// in 事件待处理队列。fireIn 触发的事件会进入这里，等待 processInEvents 消费。
+        /// </summary>
 		static LinkedList<EventObj> firedEvents_in = new LinkedList<EventObj>();
+
+        /// <summary>
+        /// in 事件正在处理队列。作用同 doingEvents_out。
+        /// <para>processInEvents 不受 pause 控制。</para>
+        /// </summary>
 		static LinkedList<EventObj> doingEvents_in = new LinkedList<EventObj>();
 
+        /// <summary>
+        /// 暂停标记。
+        /// <para>只控制 out 事件的即时执行和 out 队列消费。</para>
+        /// <para>fireIn 与 processInEvents 不受该标记控制。</para>
+        /// </summary>
 		static bool _isPauseOut = false;
 
 		public Event()
 		{
 		}
 		
+        /// <summary>
+        /// 清理所有事件注册和已触发队列。
+        /// <para>会清空 out/in 注册表，并调用 clearFiredEvents 清空所有待处理事件。</para>
+        /// </summary>
 		public static void clear()
 		{
 			events_out.Clear();
@@ -302,6 +362,10 @@ namespace KBEngine
 			clearFiredEvents();
 		}
 
+        /// <summary>
+        /// 清理所有已触发但尚未处理完成的事件，并解除 pause 状态。
+        /// <para>只清理 fired/doing 队列，不清理 out/in 注册表。</para>
+        /// </summary>
 		public static void clearFiredEvents()
 		{
 			monitor_Enter(events_out);
@@ -319,22 +383,41 @@ namespace KBEngine
 			_isPauseOut = false;
 		}
 		
+        /// <summary>
+        /// 暂停 out 事件处理。
+        /// <para>pause 后，fireOut 不再立即调用监听者，而是把事件放入 out 队列。</para>
+        /// <para>fireAll 的 out 部分同样只入队。</para>
+        /// <para>processOutEvents 不会继续消费 out 队列。</para>
+        /// <para>processInEvents 不受 pause 影响。</para>
+        /// </summary>
 		public static void pause()
 		{
 			_isPauseOut = true;
 		}
 
+        /// <summary>
+        /// 恢复 out 事件处理。
+        /// <para>与 pause 对应：解除暂停后会立即调用 processOutEvents 处理 out 队列。</para>
+        /// <para>注意：resume 只主动处理 out 队列，不主动处理 in 队列。</para>
+        /// </summary>
 		public static void resume()
 		{
 			_isPauseOut = false;
 			processOutEvents();
 		}
 
+        /// <summary>
+        /// 当前是否处于 out 事件暂停状态。
+        /// </summary>
 		public static bool isPause()
 		{
 			return _isPauseOut;
 		}
 
+        /// <summary>
+        /// 进入临界区。
+        /// <para>KBEngineApp.app 为空时跳过锁，保持旧模板在未初始化阶段的行为。</para>
+        /// </summary>
 		public static void monitor_Enter(object obj)
 		{
 			if(KBEngineApp.app == null)
@@ -343,6 +426,10 @@ namespace KBEngine
 			Monitor.Enter(obj);
 		}
 
+        /// <summary>
+        /// 退出临界区。
+        /// <para>必须与 monitor_Enter 成对使用。</para>
+        /// </summary>
 		public static void monitor_Exit(object obj)
 		{
 			if(KBEngineApp.app == null)
@@ -351,16 +438,25 @@ namespace KBEngine
 			Monitor.Exit(obj);
 		}
 		
+        /// <summary>
+        /// 判断指定 out 事件是否存在至少一个注册项。
+        /// </summary>
 		public static bool hasRegisterOut(string eventname)
 		{
 			return _hasRegister(events_out, eventname);
 		}
 
+        /// <summary>
+        /// 判断指定 in 事件是否存在至少一个注册项。
+        /// </summary>
 		public static bool hasRegisterIn(string eventname)
 		{
 			return _hasRegister(events_in, eventname);
 		}
 		
+        /// <summary>
+        /// 通用注册查询逻辑。
+        /// </summary>
 		private static bool _hasRegister(Dictionary<string, List<Pair>> events, string eventname)
 		{
 			bool has = false;
@@ -486,6 +582,11 @@ namespace KBEngine
             return registerIn(eventname, handler.Target, handler.Method.Name);
         }
 
+        /// <summary>
+        /// 通用注册逻辑。
+        /// <para>注册前会先 deregister 一次，避免同一个对象和同一个函数重复注册。</para>
+        /// <para>通过 obj.GetType().GetMethod(funcname) 查找回调方法，找不到时注册失败。</para>
+        /// </summary>
         private static bool register(Dictionary<string, List<Pair>> events, string eventname, object obj, string funcname)
 		{
 			deregister(events, eventname, obj, funcname);
@@ -519,28 +620,49 @@ namespace KBEngine
 			return true;
 		}
 
+        /// <summary>
+        /// 注销 out 事件监听。
+        /// <para>除了从 out 注册表中移除，也会从 out 的 fired 队列里移除已经排队的同一回调。</para>
+        /// <para>这样对象销毁或取消监听后，不会再收到已经延迟入队的 out 事件。</para>
+        /// </summary>
 		public static bool deregisterOut(string eventname, object obj, string funcname)
 		{
             removeFiredEventOut(obj, eventname, funcname);
             return deregister(events_out, eventname, obj, funcname);
 		}
   
+        /// <summary>
+        /// 注销 out 事件监听。
+        /// <para>Action 重载会使用 handler.Target 和 handler.Method.Name 定位注册项。</para>
+        /// </summary>
         public static bool deregisterOut(string eventname, Action handler)
         {
             return deregisterOut(eventname, handler.Target, handler.Method.Name);
         }
 
+        /// <summary>
+        /// 注销 in 事件监听。
+        /// <para>除了从 in 注册表中移除，也会从 in 的 fired 队列里移除已经排队的同一回调。</para>
+        /// </summary>
         public static bool deregisterIn(string eventname, object obj, string funcname)
 		{
             removeFiredEventIn(obj, eventname, funcname);
             return deregister(events_in, eventname, obj, funcname);
 		}
 
+        /// <summary>
+        /// 注销 in 事件监听。
+        /// <para>Action 重载会使用 handler.Target 和 handler.Method.Name 定位注册项。</para>
+        /// </summary>
         public static bool deregisterIn(string eventname, Action handler)
         {
             return deregisterIn(eventname, handler.Target, handler.Method.Name);
         }
 
+        /// <summary>
+        /// 通用注销逻辑。
+        /// <para>只移除匹配 eventname + obj + funcname 的第一个监听项。</para>
+        /// </summary>
         private static bool deregister(Dictionary<string, List<Pair>> events, string eventname, object obj, string funcname)
 		{
 			monitor_Enter(events);
@@ -567,18 +689,30 @@ namespace KBEngine
 			return false;
 		}
 
+        /// <summary>
+        /// 注销某个对象注册的所有 out 事件。
+        /// <para>会同时清理 out fired 队列中属于该对象的待执行事件。</para>
+        /// </summary>
 		public static bool deregisterOut(object obj)
 		{
             removeAllFiredEventOut(obj);
 			return deregister(events_out, obj);
 		}
 
+        /// <summary>
+        /// 注销某个对象注册的所有 in 事件。
+        /// <para>会同时清理 in fired 队列中属于该对象的待执行事件。</para>
+        /// </summary>
 		public static bool deregisterIn(object obj)
 		{
             removeAllFiredEventIn(obj);
 			return deregister(events_in, obj);
 		}
 		
+        /// <summary>
+        /// 从指定注册表中移除某个对象的所有监听。
+        /// <para>从后向前遍历每个事件列表，避免删除元素后数组下标变化导致漏删。</para>
+        /// </summary>
 		private static bool deregister(Dictionary<string, List<Pair>> events, object obj)
 		{
 			monitor_Enter(events);
@@ -615,6 +749,7 @@ namespace KBEngine
         /// <summary>
         /// 渲染表现层抛出事件(in = render->kbe)
 		/// 通常由kbe插件层来注册， 例如：UI层点击登录， 此时需要触发一个事件给kbe插件层进行与服务端交互的处理。
+        /// <para>fireIn 永远不会立即调用监听者，而是进入 in 队列，等待 processInEvents 处理。</para>
 		/// </summary>
 		public static void fireIn(string eventname, params object[] args)
 		{
@@ -623,13 +758,22 @@ namespace KBEngine
 
         /// <summary>
         /// 触发kbe插件和渲染表现层都能够收到的事件
-        /// <summary>
+        /// <para>in 部分进入 in 队列，等待 processInEvents。</para>
+        /// <para>out 部分进入 out 队列，等待 processOutEvents。</para>
+        /// <para>fireAll 不做即时调用，便于统一控制触发时机。</para>
+        /// </summary>
         public static void fireAll(string eventname, params object[] args)
 		{
 			fire_(events_in, firedEvents_in, eventname, args, false);
 			fire_(events_out, firedEvents_out, eventname, args, false);
 		}
 		
+        /// <summary>
+        /// 通用触发逻辑。
+        /// <para>eventsImmediately 为 true 且当前未 pause 时，立即调用当前注册表中的所有监听者。</para>
+        /// <para>否则把当前监听者快照放入 firedEvents。</para>
+        /// <para>入队时保存 Pair，而不是只保存 eventname 后再查注册表，是为了固定事件触发瞬间的监听者集合。</para>
+        /// </summary>
 		private static void fire_(Dictionary<string, List<Pair>> events, LinkedList<EventObj> firedEvents, string eventname, object[] args, bool eventsImmediately)
 		{
 			monitor_Enter(events);
@@ -677,6 +821,12 @@ namespace KBEngine
 			monitor_Exit(events);
 		}
 		
+        /// <summary>
+        /// 处理 out 事件队列。
+        /// <para>会先把 firedEvents_out 搬到 doingEvents_out，再执行 doingEvents_out。</para>
+        /// <para>这样处理过程中再次 fireOut 的事件会留在 firedEvents_out，下一轮再执行。</para>
+        /// <para>如果当前处于 pause 状态，不会消费 doingEvents_out。</para>
+        /// </summary>
 		public static void processOutEvents()
 		{
 			monitor_Enter(events_out);
@@ -718,6 +868,12 @@ namespace KBEngine
 			}
 		}
 		
+        /// <summary>
+        /// 处理 in 事件队列。
+        /// <para>会先把 firedEvents_in 搬到 doingEvents_in，再执行 doingEvents_in。</para>
+        /// <para>与 out 不同，processInEvents 不受 pause 控制。</para>
+        /// <para>处理过程中再次 fireIn 的事件会留在 firedEvents_in，下一轮再执行。</para>
+        /// </summary>
 		public static void processInEvents()
 		{
 			monitor_Enter(events_in);
@@ -759,26 +915,44 @@ namespace KBEngine
 			}
 		}
 
+        /// <summary>
+        /// 清理某个对象在 in fired 队列中的所有待执行事件。
+        /// </summary>
         public static void removeAllFiredEventIn(object obj)
         {
             removeFiredEvent(firedEvents_in, obj);
         }
 
+        /// <summary>
+        /// 清理某个对象在 out fired 队列中的所有待执行事件。
+        /// </summary>
         public static void removeAllFiredEventOut(object obj)
         {
             removeFiredEvent(firedEvents_out, obj);
         }
 
+        /// <summary>
+        /// 清理某个对象在 in fired 队列中的指定待执行事件。
+        /// </summary>
         public static void removeFiredEventIn(object obj, string eventname, string funcname)
         {
             removeFiredEvent(firedEvents_in, obj, eventname, funcname);
         }
 
+        /// <summary>
+        /// 清理某个对象在 out fired 队列中的指定待执行事件。
+        /// </summary>
         public static void removeFiredEventOut(object obj, string eventname, string funcname)
         {
             removeFiredEvent(firedEvents_out, obj, eventname, funcname);
         }
 
+        /// <summary>
+        /// 从指定 fired 队列中移除待执行事件。
+        /// <para>eventname 和 funcname 为空时，会移除 obj 对应的全部事件。</para>
+        /// <para>eventname 和 funcname 非空时，只移除事件名、函数名和对象都匹配的事件。</para>
+        /// <para>使用循环查找并删除，直到队列中再也没有匹配项。</para>
+        /// </summary>
         public static void removeFiredEvent(LinkedList<EventObj> firedEvents, object obj, string eventname="", string funcname="")
         {
             monitor_Enter(firedEvents);
