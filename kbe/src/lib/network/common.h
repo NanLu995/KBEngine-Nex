@@ -40,7 +40,8 @@ extern int8 g_channelExternalEncryptType;
 // listen监听队列最大值
 extern uint32 g_SOMAXCONN;
 
-// Completion backend每tick最多处理的完成事件数量
+// Completion后端每tick最多连续处理的完成事件数量，以及连续处理的时间预算。
+// 用于避免IOCP等completion模型在断线/启动burst时长时间占用主循环。
 extern uint32 g_maxCompletionsPerTick;
 extern uint32 g_maxCompletionProcessingTimeMS;
 

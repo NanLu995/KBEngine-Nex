@@ -816,6 +816,10 @@ void Channel::send(Bundle* pBundle)
 		{
 			if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(pNetworkInterface_->dispatcher().pPoller()))
 			{
+				// processSend 在 IOCP 下会把 bundle 数据移动到 poller 的
+				// pendingTcpSends 中，此时 bundles_ 可能已经为空，但 WSASend
+				// completion 还没回来。这里仍注册写事件并设置 FLAG_SENDING，
+				// 让 completion 最终能触发 onSendCompleted，保持 Channel 状态一致。
 				if (pIocpPoller->hasPendingSend(static_cast<int>(*pEndPoint_)))
 				{
 					flags_ |= FLAG_SENDING;
@@ -1126,6 +1130,7 @@ bool Channel::handshake(Packet* pPacket)
 #if KBE_PLATFORM == PLATFORM_WIN32
 				if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->networkInterface().dispatcher().pPoller()))
 				{
+					// KCP 握手 ACK 也走 IOCP UDP_SEND，避免握手阶段混入同步 sendto。
 					pIocpPoller->queueUdpSend(static_cast<int>(*pEndPoint()), pHelloAckUDPPacket->data(),
 						static_cast<int>(pHelloAckUDPPacket->length()), pEndPoint()->addr());
 				}

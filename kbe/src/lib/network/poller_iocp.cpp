@@ -20,6 +20,8 @@ namespace
 {
 const size_t IOCP_TCP_SEND_BATCH_BYTES = 64 * 1024;
 const size_t IOCP_TCP_SEND_BACKLOG_BYTES = 1024 * 1024;
+// 预算告警只是诊断“主循环被 completion 回调拖太久”，不是限流开关。
+// 真正的处理上限来自配置里的 g_maxCompletionsPerTick / g_maxCompletionProcessingTimeMS。
 const uint64 COMPLETION_BUDGET_WARNING_INTERVAL = 10 * stampsPerSecond();
 const uint32 COMPLETION_BUDGET_WARNING_MULTIPLIER = 10;
 
@@ -211,6 +213,10 @@ bool IocpPoller::queueTcpSend(int fd, const void* data, int len)
 		state.kind = SOCKET_KIND_TCP;
 	}
 
+	// 这里给 IOCP 自己的发送积压设置硬上限。
+	// Channel 层还有 send-window 检查，但 IOCP completion 模型里，
+	// 数据会先进入 pendingTcpSends 等待 WSASend 完成；如果没有这个上限，
+	// 对端卡住时内存会绕过旧的同步 send 压力反馈继续增长。
 	if (state.pendingTcpSendBytes + static_cast<size_t>(len) > IOCP_TCP_SEND_BACKLOG_BYTES)
 	{
 		WSASetLastError(WSAEWOULDBLOCK);
@@ -221,6 +227,8 @@ bool IocpPoller::queueTcpSend(int fd, const void* data, int len)
 	state.pendingTcpSendBytes += sendData.size();
 	state.pendingTcpSends.push_back(std::move(sendData));
 
+	// 如果当前没有挂起的写请求，立即投递 WSASend；
+	// 如果已有写请求，则只入队，等发送 completion 后继续 armTcpSend。
 	return armTcpSend(fd, state);
 }
 
@@ -243,6 +251,7 @@ bool IocpPoller::queueUdpSend(int fd, const void* data, int len, const Address& 
 	pending.dstAddr.sin_port = dstAddr.port;
 	state.pendingUdpSends.push_back(std::move(pending));
 
+	// UDP 也走 completion，避免 Windows 下 KCP/UDP 发送路径退回同步 sendto。
 	return armUdpSend(fd, state);
 }
 
@@ -427,6 +436,9 @@ bool IocpPoller::armTcpSend(int fd, SocketState& state)
 
 	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_TCP, OP_TCP_SEND, state.generation);
 	size_t batchBytes = 0;
+	// 合并多个小包为一次 WSASend，减少 IOCP completion 数量。
+	// 不能无限合并，否则一次 completion 回调可能占用过久，也会增加
+	// 断线时被取消的 outstanding buffer 大小。
 	while (!state.pendingTcpSends.empty() && batchBytes < IOCP_TCP_SEND_BATCH_BYTES)
 	{
 		std::vector<char>& front = state.pendingTcpSends.front();
@@ -606,6 +618,9 @@ bool IocpPoller::doRegisterForRead(int fd)
 	state.socket = static_cast<KBESOCKET>(fd);
 	state.registeredRead = true;
 
+	// fd 重新注册且没有任何 outstanding IO 时，视为一个新的 socket 生命周期。
+	// 清理旧的 completion 队列并递增 generation，防止 Windows 复用 fd 后，
+	// 旧连接迟到的 completion 被新连接消费。
 	if (isNewState ||
 		(state.pPendingReadContext == NULL && state.pPendingWriteContext == NULL &&
 			state.pendingTcpSends.empty() && state.pendingTcpSendBytes == 0 && state.pendingUdpSends.empty()))
@@ -643,6 +658,9 @@ bool IocpPoller::doDeregisterForRead(int fd)
 	tcpReceived_.erase(fd);
 	udpReceived_.erase(fd);
 
+	// 读注销表示 channel/socket 生命周期结束，读写 outstanding IO 都要取消。
+	// CancelIoEx 后 completion 仍可能异步返回，所以这里只断开 state 引用，
+	// 真正的 context 内存在 handleCompletion 收到 ERROR_OPERATION_ABORTED 后释放。
 	if (state.pPendingReadContext != NULL)
 	{
 		CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.pPendingReadContext->overlapped);
@@ -679,6 +697,9 @@ bool IocpPoller::doDeregisterForWrite(int fd)
 	state.pendingTcpSendBytes = 0;
 	state.pendingUdpSends.clear();
 
+	// 写注销只停止发送队列，不能清 tcpReceived_/udpReceived_。
+	// completion 线程在 handleCompletion 中会先把 recv 数据入队再 triggerRead；
+	// 如果 onSendCompleted/stopSend 清掉接收队列，登录/断线消息会被吞掉。
 	if (state.pPendingWriteContext != NULL)
 	{
 		CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.pPendingWriteContext->overlapped);
@@ -774,6 +795,9 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 		*ppCurrentContext = NULL;
 	}
 
+	// 取消 IO 是正常注销路径，不算网络错误。
+	// 这里仍然必须释放 context，因为 Windows 会为被取消的 OVERLAPPED
+	// 投递一个完成包回来。
 	if (!success && errorCode == ERROR_OPERATION_ABORTED)
 	{
 		cleanupContext(*pContext);
@@ -789,6 +813,8 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 
 	if (!isCurrentContext)
 	{
+		// 迟到的 completion：fd/socket/generation/context 任一不匹配都丢弃。
+		// 这是 IOCP 下避免“旧连接事件打到新连接”的核心保护。
 		cleanupContext(*pContext);
 		delete pContext;
 		return;
@@ -813,6 +839,9 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 	}
 	else if (pContext->operation == OP_TCP_RECV)
 	{
+		// TCP_RECV completion 不直接调用 recv。
+		// 数据先进入 tcpReceived_，再 triggerRead，让 TCPPacketReceiver
+		// 通过原有 PacketReader/Channel 逻辑解析消息。
 		TcpReceivedData item;
 		item.disconnected = (success && bytesTransferred == 0);
 		item.errorCode = success ? 0 : errorCode;
@@ -876,6 +905,8 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 
 		if (success && bytesTransferred < pContext->data.size())
 		{
+			// WSASend completion 允许只完成部分字节。
+			// 未发送完的数据必须放回队首，保持 TCP 字节流顺序。
 			std::vector<char> remaining(pContext->data.begin() + bytesTransferred, pContext->data.end());
 			pState->pendingTcpSendBytes += remaining.size();
 			pState->pendingTcpSends.push_front(std::move(remaining));
@@ -887,6 +918,8 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 		}
 		else if (this->findForWrite(fd) != NULL)
 		{
+			// 所有 IOCP 发送都完成后再触发写通知，让 TCPPacketSender
+			// 调用 Channel::onSendCompleted()，保持旧的 FLAG_SENDING 生命周期。
 			this->triggerWrite(fd);
 		}
 	}
@@ -913,6 +946,8 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 		SocketState& currentState = *currentIter->second;
 		if (currentState.registeredRead && currentState.pPendingReadContext == NULL)
 		{
+			// completion 回调可能销毁 channel 或重新注册 fd。
+			// 因此重挂 read 前必须重新查当前 state，而不是继续使用旧指针。
 			ensureReadArmed(fd, currentState);
 		}
 		else if (!currentState.registeredRead)
@@ -971,6 +1006,11 @@ int IocpPoller::processPendingEvents(double maxWait)
 	if (overlapped != NULL)
 	{
 		const uint64 completionProcessingStart = timestamp();
+		// completionBudget 是主线程公平性保护：
+		// KBEngine 的网络 completion 会同步进入 PacketReader/Entity 逻辑，
+		// 如果一次 tick 无限制 drain IOCP，断线或启动 burst 会把 timer、
+		// app 心跳和其他 channel 处理饿住。预算到达后保留剩余 completion
+		// 在下一轮 tick 继续取，IOCP 队列本身保证完成事件不会丢。
 		const uint64 completionProcessingBudget =
 			g_maxCompletionProcessingTimeMS > 0 ?
 			(uint64(g_maxCompletionProcessingTimeMS) * stampsPerSecond() / 1000) : 0;
@@ -1003,6 +1043,10 @@ int IocpPoller::processPendingEvents(double maxWait)
 		const bool timeBudgetWarningExceeded = completionProcessingBudget > 0 &&
 			completionProcessingElapsed >= completionProcessingBudget * COMPLETION_BUDGET_WARNING_MULTIPLIER;
 
+		// countBudgetExhausted 只代表本 tick 还有 completion 留到下 tick，
+		// 对断线/启动 burst 很常见，所以不单独报警。
+		// 只有处理时间达到预算多倍时才 warning，避免把正常登录、登出、
+		// getCell 这类上层回调耗时误判为 IOCP 异常。
 		if (timeBudgetWarningExceeded)
 		{
 			uint64 now = timestamp();

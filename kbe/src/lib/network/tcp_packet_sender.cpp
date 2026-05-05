@@ -214,6 +214,9 @@ bool TCPPacketSender::processSend(Channel* pChannel, int userarg)
 #if KBE_PLATFORM == PLATFORM_WIN32
 		if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
 		{
+			// 写通知可能只是“某次 WSASend completion 到达”。
+			// 如果 IOCP 内部还有 pending 发送，Channel 仍处于发送中，
+			// 不能提前 onSendCompleted，否则 FLAG_SENDING 会被过早清掉。
 			if (pIocpPoller->hasPendingSend(static_cast<int>(*pEndpoint_)))
 			{
 				return true;
@@ -239,6 +242,9 @@ Reason TCPPacketSender::processFilterPacket(Channel* pChannel, Packet * pPacket,
 #if KBE_PLATFORM == PLATFORM_WIN32
 	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
 	{
+		// IOCP 模式下 processFilterPacket 只负责把数据交给 poller 队列。
+		// 真实发送完成由 TCP_SEND completion 驱动，所以上层 packet 可以
+		// 标记为已交付，避免旧的同步 send 半包重试逻辑和 IOCP 队列重复发送。
 		const int sendSize = toIntSize(pPacket->length() - pPacket->sentSize);
 		if (sendSize <= 0)
 		{

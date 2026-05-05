@@ -84,6 +84,9 @@ bool TCPPacketReceiver::processRecv(bool expectingPacket)
 #if KBE_PLATFORM == PLATFORM_WIN32
 	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
 	{
+		// Windows IOCP 模式下，socket 数据已经在 WSARecv completion 中到达。
+		// 这里不能再调用 recv，否则会把 completion 模型退回 readiness 模型，
+		// 并可能在第二次登录/断线时读错时序或阻塞主线程。
 		std::vector<char> data;
 		bool disconnected = false;
 		DWORD errorCode = 0;
@@ -95,6 +98,8 @@ bool TCPPacketReceiver::processRecv(bool expectingPacket)
 
 		if (errorCode != 0)
 		{
+			// 发送 completion 失败也会通过读侧错误队列进入这里。
+			// 这样 channel 的关闭/注销仍然走 TCPPacketReceiver 原来的错误路径。
 			TCPPacket::reclaimPoolObject(pReceiveWindow);
 			WSASetLastError(errorCode);
 			PacketReceiver::RecvState rstate = this->checkSocketErrors(-1, expectingPacket);

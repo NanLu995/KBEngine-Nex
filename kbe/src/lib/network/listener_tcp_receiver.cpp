@@ -43,6 +43,9 @@ int ListenerTcpReceiver::handleInputNotification(int fd)
 #if KBE_PLATFORM == PLATFORM_WIN32
 		if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
 		{
+			// IOCP listener 的 accept socket 只来自 AcceptEx completion。
+			// 如果队列里没有完成的连接，直接退出本轮；不能再 fallback 到 accept()，
+			// 否则会在 completion/readiness 两套模型之间制造重复接受或阻塞风险。
 			KBESOCKET acceptedSocket = INVALID_SOCKET;
 			if (pIocpPoller->takeAcceptedSocket(fd, acceptedSocket))
 			{

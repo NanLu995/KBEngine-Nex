@@ -122,6 +122,8 @@ Reason KCPPacketSender::processFilterPacket(Channel* pChannel, Packet * pPacket,
 #if KBE_PLATFORM == PLATFORM_WIN32
 		if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(pChannel->networkInterface().dispatcher().pPoller()))
 		{
+			// KCP 最终仍然落到 UDP socket。Windows 下统一交给 IOCP UDP_SEND，
+			// 保证 TCP/UDP/KCP 都是 completion 驱动，避免同步 sendto 卡住主线程。
 			int sendSize = toIntSize(pPacket->length());
 			if (!pIocpPoller->queueUdpSend(static_cast<int>(*pEndpoint), pPacket->data(), sendSize, pEndpoint->addr()))
 			{
@@ -169,6 +171,8 @@ int KCPPacketSender::kcp_output(const char *buf, int len, ikcpcb *kcp, Channel* 
 #if KBE_PLATFORM == PLATFORM_WIN32
 	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(pChannel->networkInterface().dispatcher().pPoller()))
 	{
+		// ikcp_output 可能在一次 tick 中被多次调用，queueUdpSend 会按调用顺序入队，
+		// 每次只挂一个 WSASendTo，completion 后继续发送下一包。
 		if (pIocpPoller->queueUdpSend(static_cast<int>(*pEndpoint), buf, len, pEndpoint->addr()))
 		{
 			pChannel->onPacketSent(len, true);

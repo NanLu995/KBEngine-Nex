@@ -122,8 +122,12 @@
 			<external>	0			</external>				<!-- 系统默认(system default) -->
 		</writeBufferSize>
 
-		<!-- Completion后端每个tick最多处理的完成事件数，用于避免网络完成事件风暴占满主循环。
-			(Max completion events processed per tick by completion backends, preventing network completion bursts from monopolizing the main loop.)
+		<!--
+			Completion后端的主循环公平性预算。
+			maxCompletionsPerTick: 单个tick最多连续处理多少个完成事件。
+			maxProcessingTimeMS: 单个tick连续处理completion的时间预算，0表示不按时间让步。
+			这些值不会丢弃IOCP队列里的完成事件；未处理完的事件会留到下一轮tick继续处理。
+			(Completion backend budget. It prevents completion bursts from monopolizing the main loop without dropping queued events.)
 		-->
 		<completionBudget>
 			<maxCompletionsPerTick> 1024 </maxCompletionsPerTick>

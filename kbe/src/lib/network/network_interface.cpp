@@ -314,6 +314,9 @@ bool NetworkInterface::initialize(const char* pEndPointName, uint16 listeningPor
 		}
 	}
 
+	// Windows IOCP 会通过 SO_ACCEPTCONN 区分 listener 和普通 TCP socket。
+	// 因此 TCP endpoint 必须 listen() 成功后再注册读事件，否则 listener
+	// 会被误判为普通 TCP，导致组件发现/注册阶段连接失败。
 	this->dispatcher().registerReadFileDescriptor(*pEP, pLR);
 
 	INFO_MSG(fmt::format("NetworkInterface::initialize({}): address {}, SOMAXCONN={}.\n", 

@@ -81,6 +81,8 @@ bool UDPPacketReceiver::processRecv(bool expectingPacket)
 #if KBE_PLATFORM == PLATFORM_WIN32
 	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
 	{
+		// UDP/KCP 在 Windows 下也消费 IOCP completion 队列。
+		// srcAddr 来自 WSARecvFrom 的 completion context，避免这里再次 recvfrom。
 		std::vector<char> data;
 		DWORD errorCode = 0;
 		if (!pIocpPoller->takeUdpReceivedData(static_cast<int>(*pEndpoint_), data, srcAddr, errorCode))
