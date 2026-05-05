@@ -138,7 +138,7 @@ private:
 	AcceptedSocketMap acceptedSockets_;
 	TcpReceivedMap tcpReceived_;
 	UdpReceivedMap udpReceived_;
-	int completionBudgetExhaustedStreak_;
+	uint64 lastCompletionBudgetWarningTime_;
 };
 
 }

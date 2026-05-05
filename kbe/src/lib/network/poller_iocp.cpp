@@ -20,7 +20,8 @@ namespace
 {
 const size_t IOCP_TCP_SEND_BATCH_BYTES = 64 * 1024;
 const size_t IOCP_TCP_SEND_BACKLOG_BYTES = 1024 * 1024;
-const int IOCP_MAX_COMPLETIONS_PER_TICK = 1024;
+const int MAX_COMPLETIONS_PER_TICK = 1024;
+const uint64 COMPLETION_BUDGET_WARNING_INTERVAL = 10 * stampsPerSecond();
 
 inline DWORD toTimeoutMilliseconds(double maxWait)
 {
@@ -86,7 +87,7 @@ IocpPoller::IocpPoller() :
 	acceptedSockets_(),
 	tcpReceived_(),
 	udpReceived_(),
-	completionBudgetExhaustedStreak_(0)
+	lastCompletionBudgetWarningTime_(0)
 {
 	if (completionPort_ == NULL)
 	{
@@ -972,7 +973,7 @@ int IocpPoller::processPendingEvents(double maxWait)
 		++readyCount;
 		handleCompletion(completionKey, overlapped, bytesTransferred, ok == TRUE, errorCode);
 
-		while (readyCount < IOCP_MAX_COMPLETIONS_PER_TICK)
+		while (readyCount < MAX_COMPLETIONS_PER_TICK)
 		{
 			bytesTransferred = 0;
 			completionKey = 0;
@@ -989,29 +990,22 @@ int IocpPoller::processPendingEvents(double maxWait)
 			handleCompletion(completionKey, overlapped, bytesTransferred, ok == TRUE, errorCode);
 		}
 
-		if (readyCount >= IOCP_MAX_COMPLETIONS_PER_TICK)
+		if (readyCount >= MAX_COMPLETIONS_PER_TICK)
 		{
-			++completionBudgetExhaustedStreak_;
-			if ((completionBudgetExhaustedStreak_ % 16) == 1)
+			uint64 now = timestamp();
+			if (lastCompletionBudgetWarningTime_ == 0 ||
+				now - lastCompletionBudgetWarningTime_ >= COMPLETION_BUDGET_WARNING_INTERVAL)
 			{
-				WARNING_MSG(fmt::format("IocpPoller::processPendingEvents: completion budget exhausted repeatedly, count={}, streak={}\n",
-					readyCount, completionBudgetExhaustedStreak_));
+				lastCompletionBudgetWarningTime_ = now;
+				WARNING_MSG(fmt::format("IocpPoller::processPendingEvents: completion budget exhausted, count={}\n",
+					readyCount));
 			}
-		}
-		else
-		{
-			completionBudgetExhaustedStreak_ = 0;
 		}
 	}
 	else if (!ok && errorCode != WAIT_TIMEOUT)
 	{
-		completionBudgetExhaustedStreak_ = 0;
 		WARNING_MSG(fmt::format("IocpPoller::processPendingEvents: GetQueuedCompletionStatus failed: {}\n",
 			kbe_strerror(errorCode)));
-	}
-	else
-	{
-		completionBudgetExhaustedStreak_ = 0;
 	}
 
 	return readyCount;
