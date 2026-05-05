@@ -85,7 +85,8 @@ IocpPoller::IocpPoller() :
 	socketStates_(),
 	acceptedSockets_(),
 	tcpReceived_(),
-	udpReceived_()
+	udpReceived_(),
+	completionBudgetExhaustedStreak_(0)
 {
 	if (completionPort_ == NULL)
 	{
@@ -990,14 +991,27 @@ int IocpPoller::processPendingEvents(double maxWait)
 
 		if (readyCount >= IOCP_MAX_COMPLETIONS_PER_TICK)
 		{
-			WARNING_MSG(fmt::format("IocpPoller::processPendingEvents: completion budget exhausted, count={}\n",
-				readyCount));
+			++completionBudgetExhaustedStreak_;
+			if ((completionBudgetExhaustedStreak_ % 16) == 1)
+			{
+				WARNING_MSG(fmt::format("IocpPoller::processPendingEvents: completion budget exhausted repeatedly, count={}, streak={}\n",
+					readyCount, completionBudgetExhaustedStreak_));
+			}
+		}
+		else
+		{
+			completionBudgetExhaustedStreak_ = 0;
 		}
 	}
 	else if (!ok && errorCode != WAIT_TIMEOUT)
 	{
+		completionBudgetExhaustedStreak_ = 0;
 		WARNING_MSG(fmt::format("IocpPoller::processPendingEvents: GetQueuedCompletionStatus failed: {}\n",
 			kbe_strerror(errorCode)));
+	}
+	else
+	{
+		completionBudgetExhaustedStreak_ = 0;
 	}
 
 	return readyCount;
