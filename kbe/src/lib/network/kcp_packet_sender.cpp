@@ -13,6 +13,7 @@
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
 #include "network/event_poller.h"
+#include "network/poller_iocp.h"
 #include "network/error_reporter.h"
 #include "network/tcp_packet.h"
 #include "network/udp_packet.h"
@@ -118,6 +119,20 @@ Reason KCPPacketSender::processFilterPacket(Channel* pChannel, Packet * pPacket,
 	else
 	{
 		EndPoint* pEndpoint = pChannel->pEndPoint();
+#if KBE_PLATFORM == PLATFORM_WIN32
+		if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(pChannel->networkInterface().dispatcher().pPoller()))
+		{
+			int sendSize = toIntSize(pPacket->length());
+			if (!pIocpPoller->queueUdpSend(static_cast<int>(*pEndpoint), pPacket->data(), sendSize, pEndpoint->addr()))
+			{
+				return checkSocketErrors(pEndpoint);
+			}
+
+			pPacket->sentSize += toUint32Size(pPacket->length());
+			pChannel->onPacketSent(sendSize, true);
+			return REASON_SUCCESS;
+		}
+#endif
 		int retlen = pEndpoint->sendto((void*)(pPacket->data()), toIntSize(pPacket->length()));
 		bool sentCompleted = (retlen == (int)pPacket->length());
 
@@ -151,6 +166,18 @@ int KCPPacketSender::kcp_output(const char *buf, int len, ikcpcb *kcp, Channel* 
 	//KBE_ASSERT(kcp == pChannel->pKCP());
 
 	EndPoint* pEndpoint = pChannel->pEndPoint();
+#if KBE_PLATFORM == PLATFORM_WIN32
+	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(pChannel->networkInterface().dispatcher().pPoller()))
+	{
+		if (pIocpPoller->queueUdpSend(static_cast<int>(*pEndpoint), buf, len, pEndpoint->addr()))
+		{
+			pChannel->onPacketSent(len, true);
+			return 0;
+		}
+
+		return -1;
+	}
+#endif
 	int retlen = pEndpoint->sendto((void*)buf, len);
 
 	bool sentCompleted = retlen == len;

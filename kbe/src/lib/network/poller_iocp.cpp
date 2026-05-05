@@ -18,14 +18,13 @@ namespace Network
 
 namespace
 {
-inline DWORD toTimeoutMilliseconds(double maxWait, bool hasWriteHandlers)
+const size_t IOCP_TCP_SEND_BATCH_BYTES = 64 * 1024;
+const size_t IOCP_TCP_SEND_BACKLOG_BYTES = 1024 * 1024;
+const int IOCP_MAX_COMPLETIONS_PER_TICK = 1024;
+
+inline DWORD toTimeoutMilliseconds(double maxWait)
 {
 	double waitSeconds = maxWait;
-
-	if (hasWriteHandlers)
-	{
-		waitSeconds = std::min(waitSeconds, 0.01);
-	}
 
 	if (waitSeconds <= 0.0)
 	{
@@ -42,15 +41,16 @@ inline DWORD toTimeoutMilliseconds(double maxWait, bool hasWriteHandlers)
 }
 }
 
-IocpPoller::IocpContext::IocpContext(int fdArg, KBESOCKET socketArg, SocketKind kindArg, uint64 generationArg) :
+IocpPoller::IocpContext::IocpContext(int fdArg, KBESOCKET socketArg, SocketKind kindArg, Operation operationArg, uint64 generationArg) :
 	overlapped(),
 	fd(fdArg),
 	socket(socketArg),
 	kind(kindArg),
+	operation(operationArg),
 	generation(generationArg),
 	buffer(),
 	flags(0),
-	probeByte(0),
+	data(),
 	acceptSocket(INVALID_SOCKET),
 	acceptBuffer(),
 	udpAddr(),
@@ -69,7 +69,11 @@ IocpPoller::SocketState::SocketState(KBESOCKET socketArg) :
 	associated(false),
 	registeredRead(false),
 	generation(0),
-	pPendingContext(NULL),
+	pPendingReadContext(NULL),
+	pPendingWriteContext(NULL),
+	pendingTcpSends(),
+	pendingTcpSendBytes(0),
+	pendingUdpSends(),
 	acceptExFn(NULL)
 {
 }
@@ -79,7 +83,9 @@ IocpPoller::IocpPoller() :
 	EventPoller(),
 	completionPort_(CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0)),
 	socketStates_(),
-	acceptedSockets_()
+	acceptedSockets_(),
+	tcpReceived_(),
+	udpReceived_()
 {
 	if (completionPort_ == NULL)
 	{
@@ -99,12 +105,20 @@ IocpPoller::~IocpPoller()
 	for (auto& item : socketStates_)
 	{
 		SocketState& state = *item.second;
-		if (state.pPendingContext != NULL)
+		if (state.pPendingReadContext != NULL)
 		{
-			CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.pPendingContext->overlapped);
-			cleanupContext(*state.pPendingContext);
-			delete state.pPendingContext;
-			state.pPendingContext = NULL;
+			CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.pPendingReadContext->overlapped);
+			cleanupContext(*state.pPendingReadContext);
+			delete state.pPendingReadContext;
+			state.pPendingReadContext = NULL;
+		}
+
+		if (state.pPendingWriteContext != NULL)
+		{
+			CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.pPendingWriteContext->overlapped);
+			cleanupContext(*state.pPendingWriteContext);
+			delete state.pPendingWriteContext;
+			state.pPendingWriteContext = NULL;
 		}
 	}
 
@@ -133,6 +147,130 @@ bool IocpPoller::takeAcceptedSocket(int fd, KBESOCKET& acceptedSocket)
 	}
 
 	return true;
+}
+
+//-------------------------------------------------------------------------------------
+bool IocpPoller::takeTcpReceivedData(int fd, std::vector<char>& data, bool& disconnected, DWORD& errorCode)
+{
+	auto iter = tcpReceived_.find(fd);
+	if (iter == tcpReceived_.end() || iter->second.empty())
+	{
+		return false;
+	}
+
+	TcpReceivedData& item = iter->second.front();
+	data.swap(item.data);
+	disconnected = item.disconnected;
+	errorCode = item.errorCode;
+	iter->second.pop_front();
+
+	if (iter->second.empty())
+	{
+		tcpReceived_.erase(iter);
+	}
+
+	return true;
+}
+
+//-------------------------------------------------------------------------------------
+bool IocpPoller::takeUdpReceivedData(int fd, std::vector<char>& data, Address& srcAddr, DWORD& errorCode)
+{
+	auto iter = udpReceived_.find(fd);
+	if (iter == udpReceived_.end() || iter->second.empty())
+	{
+		return false;
+	}
+
+	UdpReceivedData& item = iter->second.front();
+	data.swap(item.data);
+	srcAddr = item.srcAddr;
+	errorCode = item.errorCode;
+	iter->second.pop_front();
+
+	if (iter->second.empty())
+	{
+		udpReceived_.erase(iter);
+	}
+
+	return true;
+}
+
+//-------------------------------------------------------------------------------------
+bool IocpPoller::queueTcpSend(int fd, const void* data, int len)
+{
+	if (len <= 0)
+	{
+		return true;
+	}
+
+	SocketState& state = socketStateForFd(fd);
+	if (state.kind == SOCKET_KIND_UNKNOWN)
+	{
+		state.kind = SOCKET_KIND_TCP;
+	}
+
+	if (state.pendingTcpSendBytes + static_cast<size_t>(len) > IOCP_TCP_SEND_BACKLOG_BYTES)
+	{
+		WSASetLastError(WSAEWOULDBLOCK);
+		return false;
+	}
+
+	std::vector<char> sendData(static_cast<const char*>(data), static_cast<const char*>(data) + len);
+	state.pendingTcpSendBytes += sendData.size();
+	state.pendingTcpSends.push_back(std::move(sendData));
+
+	return armTcpSend(fd, state);
+}
+
+//-------------------------------------------------------------------------------------
+bool IocpPoller::queueUdpSend(int fd, const void* data, int len, const Address& dstAddr)
+{
+	if (len <= 0)
+	{
+		return true;
+	}
+
+	SocketState& state = socketStateForFd(fd);
+	state.kind = SOCKET_KIND_UDP;
+
+	PendingUdpSend pending;
+	pending.data.assign(static_cast<const char*>(data), static_cast<const char*>(data) + len);
+	memset(&pending.dstAddr, 0, sizeof(pending.dstAddr));
+	pending.dstAddr.sin_family = AF_INET;
+	pending.dstAddr.sin_addr.s_addr = dstAddr.ip;
+	pending.dstAddr.sin_port = dstAddr.port;
+	state.pendingUdpSends.push_back(std::move(pending));
+
+	return armUdpSend(fd, state);
+}
+
+//-------------------------------------------------------------------------------------
+bool IocpPoller::hasPendingSend(int fd) const
+{
+	auto iter = socketStates_.find(fd);
+	if (iter == socketStates_.end())
+	{
+		return false;
+	}
+
+	const SocketState& state = *iter->second;
+	return state.pPendingWriteContext != NULL || !state.pendingTcpSends.empty() ||
+		state.pendingTcpSendBytes > 0 || !state.pendingUdpSends.empty();
+}
+
+//-------------------------------------------------------------------------------------
+IocpPoller::SocketState& IocpPoller::socketStateForFd(int fd)
+{
+	auto iter = socketStates_.find(fd);
+	if (iter == socketStates_.end())
+	{
+		SocketStatePtr state(new SocketState(static_cast<KBESOCKET>(fd)));
+		iter = socketStates_.insert(std::make_pair(fd, std::move(state))).first;
+	}
+
+	SocketState& state = *iter->second;
+	state.socket = static_cast<KBESOCKET>(fd);
+	return state;
 }
 
 //-------------------------------------------------------------------------------------
@@ -216,23 +354,24 @@ bool IocpPoller::loadAcceptEx(SocketState& state)
 //-------------------------------------------------------------------------------------
 bool IocpPoller::armTcpRead(int fd, SocketState& state)
 {
-	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_TCP, state.generation);
-	pContext->buffer.buf = &pContext->probeByte;
-	pContext->buffer.len = 0;
+	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_TCP, OP_TCP_RECV, state.generation);
+	pContext->data.resize(PACKET_MAX_SIZE_TCP);
+	pContext->buffer.buf = pContext->data.data();
+	pContext->buffer.len = static_cast<ULONG>(pContext->data.size());
 
 	DWORD bytes = 0;
 	DWORD flags = 0;
 	int ret = WSARecv(state.socket, &pContext->buffer, 1, &bytes, &flags, &pContext->overlapped, NULL);
 	if (ret == 0)
 	{
-		state.pPendingContext = pContext;
+		state.pPendingReadContext = pContext;
 		return true;
 	}
 
 	int wsaErr = WSAGetLastError();
 	if (wsaErr == WSA_IO_PENDING)
 	{
-		state.pPendingContext = pContext;
+		state.pPendingReadContext = pContext;
 		return true;
 	}
 
@@ -243,10 +382,11 @@ bool IocpPoller::armTcpRead(int fd, SocketState& state)
 //-------------------------------------------------------------------------------------
 bool IocpPoller::armUdpRead(int fd, SocketState& state)
 {
-	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_UDP, state.generation);
-	pContext->flags = MSG_PEEK;
-	pContext->buffer.buf = &pContext->probeByte;
-	pContext->buffer.len = 1;
+	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_UDP, OP_UDP_RECV, state.generation);
+	pContext->flags = 0;
+	pContext->data.resize(PACKET_MAX_SIZE_UDP);
+	pContext->buffer.buf = pContext->data.data();
+	pContext->buffer.len = static_cast<ULONG>(pContext->data.size());
 
 	DWORD bytes = 0;
 	int ret = WSARecvFrom(state.socket, &pContext->buffer, 1, &bytes, &pContext->flags,
@@ -255,34 +395,112 @@ bool IocpPoller::armUdpRead(int fd, SocketState& state)
 
 	if (ret == 0)
 	{
-		state.pPendingContext = pContext;
+		state.pPendingReadContext = pContext;
 		return true;
 	}
 
 	int wsaErr = WSAGetLastError();
 	if (wsaErr == WSA_IO_PENDING)
 	{
-		state.pPendingContext = pContext;
+		state.pPendingReadContext = pContext;
 		return true;
 	}
 
-	if (wsaErr == WSAEMSGSIZE)
+	delete pContext;
+	return false;
+}
+
+//-------------------------------------------------------------------------------------
+bool IocpPoller::armTcpSend(int fd, SocketState& state)
+{
+	if (state.pPendingWriteContext != NULL || state.pendingTcpSends.empty())
 	{
-		// A 1-byte MSG_PEEK probe can fail synchronously when a larger UDP
-		// datagram is already queued. That still means the socket is readable.
-		delete pContext;
-		this->triggerRead(fd);
+		return true;
+	}
 
-		auto iter = socketStates_.find(fd);
-		if (iter != socketStates_.end())
+	if (!ensureAssociated(state, fd))
+	{
+		return false;
+	}
+
+	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_TCP, OP_TCP_SEND, state.generation);
+	size_t batchBytes = 0;
+	while (!state.pendingTcpSends.empty() && batchBytes < IOCP_TCP_SEND_BATCH_BYTES)
+	{
+		std::vector<char>& front = state.pendingTcpSends.front();
+		const size_t bytesToAppend = std::min(front.size(), IOCP_TCP_SEND_BATCH_BYTES - batchBytes);
+		pContext->data.insert(pContext->data.end(), front.begin(), front.begin() + bytesToAppend);
+		batchBytes += bytesToAppend;
+		state.pendingTcpSendBytes -= bytesToAppend;
+
+		if (bytesToAppend == front.size())
 		{
-			SocketState& currentState = *iter->second;
-			if (currentState.registeredRead && currentState.pPendingContext == NULL)
-			{
-				ensureReadArmed(fd, currentState);
-			}
+			state.pendingTcpSends.pop_front();
 		}
+		else
+		{
+			front.erase(front.begin(), front.begin() + bytesToAppend);
+		}
+	}
 
+	pContext->buffer.buf = pContext->data.data();
+	pContext->buffer.len = static_cast<ULONG>(pContext->data.size());
+
+	DWORD bytes = 0;
+	int ret = WSASend(state.socket, &pContext->buffer, 1, &bytes, 0, &pContext->overlapped, NULL);
+	if (ret == 0)
+	{
+		state.pPendingWriteContext = pContext;
+		return true;
+	}
+
+	int wsaErr = WSAGetLastError();
+	if (wsaErr == WSA_IO_PENDING)
+	{
+		state.pPendingWriteContext = pContext;
+		return true;
+	}
+
+	delete pContext;
+	return false;
+}
+
+//-------------------------------------------------------------------------------------
+bool IocpPoller::armUdpSend(int fd, SocketState& state)
+{
+	if (state.pPendingWriteContext != NULL || state.pendingUdpSends.empty())
+	{
+		return true;
+	}
+
+	if (!ensureAssociated(state, fd))
+	{
+		return false;
+	}
+
+	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_UDP, OP_UDP_SEND, state.generation);
+	PendingUdpSend pending = std::move(state.pendingUdpSends.front());
+	state.pendingUdpSends.pop_front();
+	pContext->data.swap(pending.data);
+	pContext->udpAddr = pending.dstAddr;
+	pContext->udpAddrLen = sizeof(pContext->udpAddr);
+	pContext->buffer.buf = pContext->data.data();
+	pContext->buffer.len = static_cast<ULONG>(pContext->data.size());
+
+	DWORD bytes = 0;
+	int ret = WSASendTo(state.socket, &pContext->buffer, 1, &bytes, 0,
+		reinterpret_cast<sockaddr*>(&pContext->udpAddr), pContext->udpAddrLen,
+		&pContext->overlapped, NULL);
+	if (ret == 0)
+	{
+		state.pPendingWriteContext = pContext;
+		return true;
+	}
+
+	int wsaErr = WSAGetLastError();
+	if (wsaErr == WSA_IO_PENDING)
+	{
+		state.pPendingWriteContext = pContext;
 		return true;
 	}
 
@@ -298,7 +516,7 @@ bool IocpPoller::armAccept(int fd, SocketState& state)
 		return false;
 	}
 
-	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_LISTENER, state.generation);
+	IocpContext* pContext = new IocpContext(fd, state.socket, SOCKET_KIND_LISTENER, OP_ACCEPT, state.generation);
 
 	pContext->acceptSocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
 	if (pContext->acceptSocket == INVALID_SOCKET)
@@ -318,17 +536,19 @@ bool IocpPoller::armAccept(int fd, SocketState& state)
 
 	if (ok)
 	{
-		state.pPendingContext = pContext;
+		state.pPendingReadContext = pContext;
 		return true;
 	}
 
 	int wsaErr = WSAGetLastError();
 	if (wsaErr == ERROR_IO_PENDING)
 	{
-		state.pPendingContext = pContext;
+		state.pPendingReadContext = pContext;
 		return true;
 	}
 
+	WARNING_MSG(fmt::format("IocpPoller::armAccept: AcceptEx failed on fd {}: {}\n",
+		fd, kbe_strerror(wsaErr)));
 	cleanupContext(*pContext);
 	delete pContext;
 	return false;
@@ -337,7 +557,7 @@ bool IocpPoller::armAccept(int fd, SocketState& state)
 //-------------------------------------------------------------------------------------
 bool IocpPoller::ensureReadArmed(int fd, SocketState& state)
 {
-	if (!state.registeredRead || state.pPendingContext != NULL)
+	if (!state.registeredRead || state.pPendingReadContext != NULL)
 	{
 		return true;
 	}
@@ -372,20 +592,30 @@ bool IocpPoller::ensureReadArmed(int fd, SocketState& state)
 bool IocpPoller::doRegisterForRead(int fd)
 {
 	auto iter = socketStates_.find(fd);
+	bool isNewState = false;
 	if (iter == socketStates_.end())
 	{
 		SocketStatePtr state(new SocketState(static_cast<KBESOCKET>(fd)));
 		iter = socketStates_.insert(std::make_pair(fd, std::move(state))).first;
+		isNewState = true;
 	}
 
 	SocketState& state = *iter->second;
 	state.socket = static_cast<KBESOCKET>(fd);
-	state.kind = SOCKET_KIND_UNKNOWN;
-	state.associated = false;
 	state.registeredRead = true;
-	++state.generation;
-	state.pPendingContext = NULL;
-	state.acceptExFn = NULL;
+
+	if (isNewState ||
+		(state.pPendingReadContext == NULL && state.pPendingWriteContext == NULL &&
+			state.pendingTcpSends.empty() && state.pendingTcpSendBytes == 0 && state.pendingUdpSends.empty()))
+	{
+		tcpReceived_.erase(fd);
+		udpReceived_.erase(fd);
+		state.kind = SOCKET_KIND_UNKNOWN;
+		state.associated = false;
+		++state.generation;
+		state.acceptExFn = NULL;
+	}
+
 	ensureReadArmed(fd, *iter->second);
 	return true;
 }
@@ -408,15 +638,27 @@ bool IocpPoller::doDeregisterForRead(int fd)
 
 	SocketState& state = *iter->second;
 	state.registeredRead = false;
+	tcpReceived_.erase(fd);
+	udpReceived_.erase(fd);
 
-	if (state.pPendingContext != NULL)
+	if (state.pPendingReadContext != NULL)
 	{
-		CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.pPendingContext->overlapped);
+		CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.pPendingReadContext->overlapped);
+		state.pPendingReadContext = NULL;
 	}
-	else
+
+	if (state.pPendingWriteContext != NULL)
 	{
-		cleanupStateIfUnused(fd);
+		CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.pPendingWriteContext->overlapped);
+		state.pPendingWriteContext = NULL;
 	}
+
+	state.pendingTcpSends.clear();
+	state.pendingTcpSendBytes = 0;
+	state.pendingUdpSends.clear();
+	++state.generation;
+
+	cleanupStateIfUnused(fd);
 
 	return true;
 }
@@ -424,6 +666,23 @@ bool IocpPoller::doDeregisterForRead(int fd)
 //-------------------------------------------------------------------------------------
 bool IocpPoller::doDeregisterForWrite(int fd)
 {
+	auto iter = socketStates_.find(fd);
+	if (iter == socketStates_.end())
+	{
+		return true;
+	}
+
+	SocketState& state = *iter->second;
+	state.pendingTcpSends.clear();
+	state.pendingTcpSendBytes = 0;
+	state.pendingUdpSends.clear();
+
+	if (state.pPendingWriteContext != NULL)
+	{
+		CancelIoEx(reinterpret_cast<HANDLE>(state.socket), &state.pPendingWriteContext->overlapped);
+		state.pPendingWriteContext = NULL;
+	}
+
 	cleanupStateIfUnused(fd);
 	return true;
 }
@@ -438,7 +697,9 @@ void IocpPoller::cleanupStateIfUnused(int fd)
 	}
 
 	SocketState& state = *iter->second;
-	if (state.registeredRead || state.pPendingContext != NULL || this->findForWrite(fd) != NULL)
+	if (state.registeredRead || state.pPendingReadContext != NULL || state.pPendingWriteContext != NULL ||
+		!state.pendingTcpSends.empty() || state.pendingTcpSendBytes > 0 ||
+		!state.pendingUdpSends.empty() || this->findForWrite(fd) != NULL)
 	{
 		return;
 	}
@@ -478,7 +739,7 @@ void IocpPoller::cleanupContext(IocpContext& context)
 }
 
 //-------------------------------------------------------------------------------------
-void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapped, bool success, DWORD errorCode)
+void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapped, DWORD bytesTransferred, bool success, DWORD errorCode)
 {
 	if (overlapped == NULL)
 	{
@@ -492,16 +753,23 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 	auto iter = socketStates_.find(fd);
 	const bool hasState = (iter != socketStates_.end());
 	SocketState* pState = hasState ? iter->second.get() : NULL;
+	IocpContext** ppCurrentContext = NULL;
+	if (pState != NULL)
+	{
+		ppCurrentContext = (pContext->operation == OP_TCP_SEND || pContext->operation == OP_UDP_SEND) ?
+			&pState->pPendingWriteContext : &pState->pPendingReadContext;
+	}
+
 	const bool isCurrentContext = (pState != NULL &&
 		pState->socket == pContext->socket &&
 		pState->generation == pContext->generation &&
-		pState->pPendingContext == pContext);
-	const bool isUdpProbeMoreData = (pContext->kind == SOCKET_KIND_UDP && errorCode == ERROR_MORE_DATA);
+		ppCurrentContext != NULL &&
+		*ppCurrentContext == pContext);
 	const bool isUdpPortUnreachable = (pContext->kind == SOCKET_KIND_UDP && errorCode == ERROR_PORT_UNREACHABLE);
 
 	if (isCurrentContext)
 	{
-		pState->pPendingContext = NULL;
+		*ppCurrentContext = NULL;
 	}
 
 	if (!success && errorCode == ERROR_OPERATION_ABORTED)
@@ -524,7 +792,7 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 		return;
 	}
 
-	if (pContext->kind == SOCKET_KIND_LISTENER)
+	if (pContext->operation == OP_ACCEPT)
 	{
 		if (success && pContext->acceptSocket != INVALID_SOCKET)
 		{
@@ -541,17 +809,97 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 				fd, kbe_strerror(errorCode)));
 		}
 	}
-	else
+	else if (pContext->operation == OP_TCP_RECV)
 	{
-		// UDP probe reads use a 1-byte MSG_PEEK buffer. A larger datagram
-		// completes as ERROR_MORE_DATA, which still means "socket readable".
-		if (!success && errorCode != 0 && !isUdpProbeMoreData && !isUdpPortUnreachable)
+		TcpReceivedData item;
+		item.disconnected = (success && bytesTransferred == 0);
+		item.errorCode = success ? 0 : errorCode;
+		if (success && bytesTransferred > 0)
+		{
+			item.data.assign(pContext->data.begin(), pContext->data.begin() + bytesTransferred);
+		}
+
+		if (!success && errorCode != 0)
 		{
 			WARNING_MSG(fmt::format("IocpPoller::handleCompletion: read completion failed on fd {}: {}\n",
 				fd, kbe_strerror(errorCode)));
 		}
 
+		tcpReceived_[fd].push_back(std::move(item));
 		this->triggerRead(fd);
+	}
+	else if (pContext->operation == OP_UDP_RECV)
+	{
+		if (!success && errorCode != 0 && !isUdpPortUnreachable)
+		{
+			WARNING_MSG(fmt::format("IocpPoller::handleCompletion: udp recv completion failed on fd {}: {}\n",
+				fd, kbe_strerror(errorCode)));
+		}
+
+		if (success && bytesTransferred > 0)
+		{
+			UdpReceivedData item;
+			item.errorCode = 0;
+			item.srcAddr.ip = pContext->udpAddr.sin_addr.s_addr;
+			item.srcAddr.port = pContext->udpAddr.sin_port;
+			item.data.assign(pContext->data.begin(), pContext->data.begin() + bytesTransferred);
+			udpReceived_[fd].push_back(std::move(item));
+			this->triggerRead(fd);
+		}
+		else if (!success && isUdpPortUnreachable)
+		{
+			UdpReceivedData item;
+			item.errorCode = errorCode;
+			udpReceived_[fd].push_back(std::move(item));
+			this->triggerRead(fd);
+		}
+	}
+	else if (pContext->operation == OP_TCP_SEND)
+	{
+		if (!success && errorCode != 0)
+		{
+			WARNING_MSG(fmt::format("IocpPoller::handleCompletion: send completion failed on fd {}: {}\n",
+				fd, kbe_strerror(errorCode)));
+
+			TcpReceivedData item;
+			item.disconnected = false;
+			item.errorCode = errorCode;
+			tcpReceived_[fd].push_back(std::move(item));
+			this->triggerRead(fd);
+
+			cleanupContext(*pContext);
+			delete pContext;
+			return;
+		}
+
+		if (success && bytesTransferred < pContext->data.size())
+		{
+			std::vector<char> remaining(pContext->data.begin() + bytesTransferred, pContext->data.end());
+			pState->pendingTcpSendBytes += remaining.size();
+			pState->pendingTcpSends.push_front(std::move(remaining));
+		}
+
+		if (!pState->pendingTcpSends.empty())
+		{
+			armTcpSend(fd, *pState);
+		}
+		else if (this->findForWrite(fd) != NULL)
+		{
+			this->triggerWrite(fd);
+		}
+	}
+	else if (pContext->operation == OP_UDP_SEND)
+	{
+		if (!success && errorCode != 0 && !isUdpPortUnreachable)
+		{
+			WARNING_MSG(fmt::format("IocpPoller::handleCompletion: udp send completion failed on fd {}: {}\n",
+				fd, kbe_strerror(errorCode)));
+		}
+
+		if (!pState->pendingUdpSends.empty())
+		{
+			armUdpSend(fd, *pState);
+		}
 	}
 
 	cleanupContext(*pContext);
@@ -561,7 +909,7 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 	if (currentIter != socketStates_.end())
 	{
 		SocketState& currentState = *currentIter->second;
-		if (currentState.registeredRead && currentState.pPendingContext == NULL)
+		if (currentState.registeredRead && currentState.pPendingReadContext == NULL)
 		{
 			ensureReadArmed(fd, currentState);
 		}
@@ -577,14 +925,23 @@ int IocpPoller::processPendingEvents(double maxWait)
 {
 	for (auto& item : socketStates_)
 	{
-		if (item.second->registeredRead && item.second->pPendingContext == NULL)
+		if (item.second->registeredRead && item.second->pPendingReadContext == NULL)
 		{
 			ensureReadArmed(item.first, *item.second);
 		}
+
+		if (!item.second->pendingTcpSends.empty() && item.second->pPendingWriteContext == NULL)
+		{
+			armTcpSend(item.first, *item.second);
+		}
+
+		if (!item.second->pendingUdpSends.empty() && item.second->pPendingWriteContext == NULL)
+		{
+			armUdpSend(item.first, *item.second);
+		}
 	}
 
-	const bool hasWriteHandlers = !this->fdWriteHandlers().empty();
-	DWORD timeoutMs = toTimeoutMilliseconds(maxWait, hasWriteHandlers);
+	DWORD timeoutMs = toTimeoutMilliseconds(maxWait);
 
 #if ENABLE_WATCHERS
 	g_iocpIdleProfile.start();
@@ -612,9 +969,9 @@ int IocpPoller::processPendingEvents(double maxWait)
 	if (overlapped != NULL)
 	{
 		++readyCount;
-		handleCompletion(completionKey, overlapped, ok == TRUE, errorCode);
+		handleCompletion(completionKey, overlapped, bytesTransferred, ok == TRUE, errorCode);
 
-		while (true)
+		while (readyCount < IOCP_MAX_COMPLETIONS_PER_TICK)
 		{
 			bytesTransferred = 0;
 			completionKey = 0;
@@ -628,29 +985,19 @@ int IocpPoller::processPendingEvents(double maxWait)
 			}
 
 			++readyCount;
-			handleCompletion(completionKey, overlapped, ok == TRUE, errorCode);
+			handleCompletion(completionKey, overlapped, bytesTransferred, ok == TRUE, errorCode);
+		}
+
+		if (readyCount >= IOCP_MAX_COMPLETIONS_PER_TICK)
+		{
+			WARNING_MSG(fmt::format("IocpPoller::processPendingEvents: completion budget exhausted, count={}\n",
+				readyCount));
 		}
 	}
 	else if (!ok && errorCode != WAIT_TIMEOUT)
 	{
 		WARNING_MSG(fmt::format("IocpPoller::processPendingEvents: GetQueuedCompletionStatus failed: {}\n",
 			kbe_strerror(errorCode)));
-	}
-
-	if (!this->fdWriteHandlers().empty())
-	{
-		std::vector<int> writeFds;
-		writeFds.reserve(this->fdWriteHandlers().size());
-		for (const auto& item : this->fdWriteHandlers())
-		{
-			writeFds.push_back(item.first);
-		}
-
-		for (int fd : writeFds)
-		{
-			++readyCount;
-			this->triggerWrite(fd);
-		}
 	}
 
 	return readyCount;

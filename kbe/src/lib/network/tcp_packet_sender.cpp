@@ -13,6 +13,7 @@
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
 #include "network/event_poller.h"
+#include "network/poller_iocp.h"
 #include "network/error_reporter.h"
 #include "network/tcp_packet.h"
 #include "network/udp_packet.h"
@@ -209,7 +210,18 @@ bool TCPPacketSender::processSend(Channel* pChannel, int userarg)
 	bundles.clear();
 
 	if(noticed)
+	{
+#if KBE_PLATFORM == PLATFORM_WIN32
+		if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
+		{
+			if (pIocpPoller->hasPendingSend(static_cast<int>(*pEndpoint_)))
+			{
+				return true;
+			}
+		}
+#endif
 		pChannel->onSendCompleted();
+	}
 
 	return true;
 }
@@ -223,6 +235,28 @@ Reason TCPPacketSender::processFilterPacket(Channel* pChannel, Packet * pPacket,
 	}
 
 	EndPoint* pEndpoint = pChannel->pEndPoint();
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
+	{
+		const int sendSize = toIntSize(pPacket->length() - pPacket->sentSize);
+		if (sendSize <= 0)
+		{
+			return REASON_SUCCESS;
+		}
+
+		if (!pIocpPoller->queueTcpSend(static_cast<int>(*pEndpoint),
+			pPacket->data() + pPacket->sentSize, sendSize))
+		{
+			return checkSocketErrors(pEndpoint);
+		}
+
+		pPacket->sentSize += sendSize;
+		pChannel->onPacketSent(sendSize, true);
+		return REASON_SUCCESS;
+	}
+#endif
+
 	int len = pEndpoint->send(pPacket->data() + pPacket->sentSize, toIntSize(pPacket->length() - pPacket->sentSize));
 
 	if(len > 0)

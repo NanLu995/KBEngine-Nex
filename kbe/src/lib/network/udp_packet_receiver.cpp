@@ -13,6 +13,7 @@
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
 #include "network/event_poller.h"
+#include "network/poller_iocp.h"
 #include "network/error_reporter.h"
 
 namespace KBEngine { 
@@ -76,6 +77,38 @@ bool UDPPacketReceiver::processRecv(bool expectingPacket)
 {	
 	Address	srcAddr;
 	UDPPacket* pChannelReceiveWindow = UDPPacket::createPoolObject(OBJECTPOOL_POINT);
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
+	{
+		std::vector<char> data;
+		DWORD errorCode = 0;
+		if (!pIocpPoller->takeUdpReceivedData(static_cast<int>(*pEndpoint_), data, srcAddr, errorCode))
+		{
+			UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
+			return false;
+		}
+
+		if (errorCode != 0)
+		{
+			UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
+			WSASetLastError(errorCode);
+			PacketReceiver::RecvState rstate = this->checkSocketErrors(-1, expectingPacket);
+			return rstate == PacketReceiver::RECV_STATE_CONTINUE;
+		}
+
+		if (data.empty())
+		{
+			UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
+			return false;
+		}
+
+		memcpy(pChannelReceiveWindow->data(), data.data(), data.size());
+		pChannelReceiveWindow->wpos(static_cast<uint32>(data.size()));
+	}
+	else
+#endif
+	{
 	int len = pChannelReceiveWindow->recvFromEndPoint(*pEndpoint_, &srcAddr);
 
 	if (len <= 0)
@@ -83,6 +116,7 @@ bool UDPPacketReceiver::processRecv(bool expectingPacket)
 		UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
 		PacketReceiver::RecvState rstate = this->checkSocketErrors(len, expectingPacket);
 		return rstate == PacketReceiver::RECV_STATE_CONTINUE;
+	}
 	}
 	
 	Channel* pSrcChannel = findChannel(srcAddr);

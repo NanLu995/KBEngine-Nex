@@ -13,6 +13,7 @@
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
 #include "network/event_poller.h"
+#include "network/poller_iocp.h"
 #include "network/error_reporter.h"
 #include <openssl/err.h>
 
@@ -79,6 +80,58 @@ bool TCPPacketReceiver::processRecv(bool expectingPacket)
 	}
 
 	TCPPacket* pReceiveWindow = TCPPacket::createPoolObject(OBJECTPOOL_POINT);
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
+	{
+		std::vector<char> data;
+		bool disconnected = false;
+		DWORD errorCode = 0;
+		if (!pIocpPoller->takeTcpReceivedData(static_cast<int>(*pEndpoint_), data, disconnected, errorCode))
+		{
+			TCPPacket::reclaimPoolObject(pReceiveWindow);
+			return false;
+		}
+
+		if (errorCode != 0)
+		{
+			TCPPacket::reclaimPoolObject(pReceiveWindow);
+			WSASetLastError(errorCode);
+			PacketReceiver::RecvState rstate = this->checkSocketErrors(-1, expectingPacket);
+			if (rstate == PacketReceiver::RECV_STATE_INTERRUPT)
+			{
+				onGetError(pChannel, fmt::format("TCPPacketReceiver::processRecv(): error={}\n", kbe_lasterror()));
+				return false;
+			}
+
+			return rstate == PacketReceiver::RECV_STATE_CONTINUE;
+		}
+
+		if (disconnected)
+		{
+			TCPPacket::reclaimPoolObject(pReceiveWindow);
+			onGetError(pChannel, "disconnected");
+			return false;
+		}
+
+		if (data.empty())
+		{
+			TCPPacket::reclaimPoolObject(pReceiveWindow);
+			return false;
+		}
+
+		memcpy(pReceiveWindow->data(), data.data(), data.size());
+		pReceiveWindow->wpos(static_cast<uint32>(data.size()));
+
+		Reason ret = this->processPacket(pChannel, pReceiveWindow);
+
+		if (ret != REASON_SUCCESS)
+			this->dispatcher().errorReporter().reportException(ret, pEndpoint_->addr());
+
+		return true;
+	}
+#endif
+
 	int len = pReceiveWindow->recvFromEndPoint(*pEndpoint_);
 
 	if (len < 0)

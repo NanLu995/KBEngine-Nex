@@ -63,10 +63,14 @@ int ListenerTcpReceiver::handleInputNotification(int fd)
 						fd, kbe_strerror(WSAGetLastError())));
 				}
 			}
-		}
-#endif
 
-		if (pNewEndPoint == NULL)
+			if (pNewEndPoint == NULL)
+			{
+				break;
+			}
+		}
+		else
+#endif
 		{
 			pNewEndPoint = endpoint_.accept();
 		}

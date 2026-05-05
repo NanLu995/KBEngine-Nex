@@ -192,8 +192,6 @@ bool NetworkInterface::initialize(const char* pEndPointName, uint16 listeningPor
 	if (listeningPort_min > 0 && listeningPort_min == listeningPort_max)
 		pEP->setreuseaddr(true);
 	
-	this->dispatcher().registerReadFileDescriptor(*pEP, pLR);
-	
 	u_int32_t ifIPAddr = INADDR_ANY;
 
 	bool listeningInterfaceEmpty =
@@ -315,6 +313,8 @@ bool NetworkInterface::initialize(const char* pEndPointName, uint16 listeningPor
 			return false;
 		}
 	}
+
+	this->dispatcher().registerReadFileDescriptor(*pEP, pLR);
 
 	INFO_MSG(fmt::format("NetworkInterface::initialize({}): address {}, SOMAXCONN={}.\n", 
 		pEndPointName, address.c_str(), backlog));
