@@ -140,12 +140,16 @@ bool UDPPacketSender::processSend(Channel* pChannel, int userarg)
 				*/
 
 				// 连续超过10次则通知出错
-				if (++sendfailCount_ >= 10 && pChannel->isExternal())
+				++sendfailCount_;
+				if (pChannel->isExternal())
 				{
-					onGetError(pChannel, "UDPPacketSender::processSend: sendfailCount >= 10");
+					if (sendfailCount_ >= 10)
+					{
+						WARNING_MSG(fmt::format("UDPPacketSender::processSend: closing external udp/kcp channel after {} send retries, addr={}\n",
+							(int)sendfailCount_, pEndpoint_->addr().c_str()));
 
-					this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(),
-						fmt::format("UDPPacketSender::processSend(external, sendfailCount({}) >= 10)", (int)sendfailCount_).c_str());
+						onGetError(pChannel, "UDPPacketSender::processSend: sendfailCount >= 10");
+					}
 				}
 				else
 				{
