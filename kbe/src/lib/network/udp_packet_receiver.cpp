@@ -270,6 +270,15 @@ PacketReceiver::RecvState UDPPacketReceiver::checkSocketErrors(int len, bool exp
 	{
 		return RECV_STATE_CONTINUE;
 	}
+
+	if (wsaErr == ERROR_PORT_UNREACHABLE)
+	{
+		// Windows UDP/KCP 在对端关闭或端口不可达时可能返回
+		// ERROR_PORT_UNREACHABLE(1234)。这是 ICMP 反馈，不代表本地
+		// UDP socket 坏掉；旧逻辑依赖 KCP 发送失败/超时来清理 channel，
+		// 所以这里保持静默继续，避免大量 REASON_GENERAL_NETWORK。
+		return RECV_STATE_CONTINUE;
+	}
 #endif // unix
 
 #ifdef _WIN32

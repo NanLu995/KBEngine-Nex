@@ -879,10 +879,10 @@ void IocpPoller::handleCompletion(ULONG_PTR completionKey, LPOVERLAPPED overlapp
 		}
 		else if (!success && isUdpPortUnreachable)
 		{
-			UdpReceivedData item;
-			item.errorCode = errorCode;
-			udpReceived_[fd].push_back(std::move(item));
-			this->triggerRead(fd);
+			// Windows 会把 ICMP port unreachable 转成 UDP recv completion 错误。
+			// KCP/UDP 客户端断开时这很常见，而且 completion 里没有可靠的
+			// 对端地址可用于关闭具体 channel；交给 KCP 发送窗口/超时逻辑处理，
+			// 这里不向上层报告，避免刷 REASON_GENERAL_NETWORK。
 		}
 	}
 	else if (pContext->operation == OP_TCP_SEND)
