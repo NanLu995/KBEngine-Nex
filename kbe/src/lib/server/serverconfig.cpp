@@ -268,6 +268,18 @@ bool ServerConfig::loadConfig(std::string fileName)
 				channelCommon_.extWriteBufferSize = KBE_MAX(0, xml->getValInt(childnode1));
 		}
 
+		childnode = xml->enterNode(rootNode, "completionBudget");
+		if (childnode)
+		{
+			TiXmlNode* childnode1 = xml->enterNode(childnode, "maxCompletionsPerTick");
+			if (childnode1)
+				Network::g_maxCompletionsPerTick = KBE_MAX(1, xml->getValInt(childnode1));
+
+			childnode1 = xml->enterNode(childnode, "maxProcessingTimeMS");
+			if (childnode1)
+				Network::g_maxCompletionProcessingTimeMS = KBE_MAX(0, xml->getValInt(childnode1));
+		}
+
 		childnode = xml->enterNode(rootNode, "windowOverflow");
 		if(childnode)
 		{

@@ -121,6 +121,14 @@
 			<internal>	16777216	</internal>				<!-- 16M -->
 			<external>	0			</external>				<!-- 系统默认(system default) -->
 		</writeBufferSize>
+
+		<!-- Completion后端每个tick最多处理的完成事件数，用于避免网络完成事件风暴占满主循环。
+			(Max completion events processed per tick by completion backends, preventing network completion bursts from monopolizing the main loop.)
+		-->
+		<completionBudget>
+			<maxCompletionsPerTick> 1024 </maxCompletionsPerTick>
+			<maxProcessingTimeMS> 5 </maxProcessingTimeMS>
+		</completionBudget>
 		
 		<!-- 发送与接收窗口溢出值，0无限制
 			(the value of the send/receive window overflow, 0 is unlimited)

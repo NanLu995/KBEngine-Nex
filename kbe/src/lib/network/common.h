@@ -40,6 +40,10 @@ extern int8 g_channelExternalEncryptType;
 // listen监听队列最大值
 extern uint32 g_SOMAXCONN;
 
+// Completion backend每tick最多处理的完成事件数量
+extern uint32 g_maxCompletionsPerTick;
+extern uint32 g_maxCompletionProcessingTimeMS;
+
 // udp握手包
 extern const char* UDP_HELLO;
 extern const char* UDP_HELLO_ACK;

@@ -25,6 +25,9 @@ int8 g_channelExternalEncryptType = 0;
 
 uint32 g_SOMAXCONN = 5;
 
+uint32 g_maxCompletionsPerTick = 1024;
+uint32 g_maxCompletionProcessingTimeMS = 5;
+
 // UDP参数
 uint32						g_rudp_intWritePacketsQueueSize = 65535;
 uint32						g_rudp_intReadPacketsQueueSize = 65535;

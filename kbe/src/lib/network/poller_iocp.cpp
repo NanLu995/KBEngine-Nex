@@ -20,8 +20,8 @@ namespace
 {
 const size_t IOCP_TCP_SEND_BATCH_BYTES = 64 * 1024;
 const size_t IOCP_TCP_SEND_BACKLOG_BYTES = 1024 * 1024;
-const int MAX_COMPLETIONS_PER_TICK = 1024;
 const uint64 COMPLETION_BUDGET_WARNING_INTERVAL = 10 * stampsPerSecond();
+const uint32 COMPLETION_BUDGET_WARNING_MULTIPLIER = 10;
 
 inline DWORD toTimeoutMilliseconds(double maxWait)
 {
@@ -970,10 +970,16 @@ int IocpPoller::processPendingEvents(double maxWait)
 
 	if (overlapped != NULL)
 	{
+		const uint64 completionProcessingStart = timestamp();
+		const uint64 completionProcessingBudget =
+			g_maxCompletionProcessingTimeMS > 0 ?
+			(uint64(g_maxCompletionProcessingTimeMS) * stampsPerSecond() / 1000) : 0;
+
 		++readyCount;
 		handleCompletion(completionKey, overlapped, bytesTransferred, ok == TRUE, errorCode);
 
-		while (readyCount < MAX_COMPLETIONS_PER_TICK)
+		while (readyCount < static_cast<int>(g_maxCompletionsPerTick) &&
+			(completionProcessingBudget == 0 || timestamp() - completionProcessingStart < completionProcessingBudget))
 		{
 			bytesTransferred = 0;
 			completionKey = 0;
@@ -990,15 +996,24 @@ int IocpPoller::processPendingEvents(double maxWait)
 			handleCompletion(completionKey, overlapped, bytesTransferred, ok == TRUE, errorCode);
 		}
 
-		if (readyCount >= MAX_COMPLETIONS_PER_TICK)
+		const uint64 completionProcessingElapsed = timestamp() - completionProcessingStart;
+		const bool countBudgetExhausted = readyCount >= static_cast<int>(g_maxCompletionsPerTick);
+		const bool timeBudgetExceeded = completionProcessingBudget > 0 &&
+			completionProcessingElapsed >= completionProcessingBudget;
+		const bool timeBudgetWarningExceeded = completionProcessingBudget > 0 &&
+			completionProcessingElapsed >= completionProcessingBudget * COMPLETION_BUDGET_WARNING_MULTIPLIER;
+
+		if (timeBudgetWarningExceeded)
 		{
 			uint64 now = timestamp();
 			if (lastCompletionBudgetWarningTime_ == 0 ||
 				now - lastCompletionBudgetWarningTime_ >= COMPLETION_BUDGET_WARNING_INTERVAL)
 			{
 				lastCompletionBudgetWarningTime_ = now;
-				WARNING_MSG(fmt::format("IocpPoller::processPendingEvents: completion budget exhausted, count={}\n",
-					readyCount));
+				WARNING_MSG(fmt::format("IocpPoller::processPendingEvents: completion processing took too long, count={}, countBudget={}, timeBudget={}, maxCount={}, maxTimeMS={}, elapsedMS={}\n",
+					readyCount, countBudgetExhausted, timeBudgetExceeded, g_maxCompletionsPerTick,
+					g_maxCompletionProcessingTimeMS,
+					completionProcessingElapsed * 1000 / stampsPerSecond()));
 			}
 		}
 	}
