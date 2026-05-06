@@ -210,7 +210,8 @@ void ikcp_log(ikcpcb *kcp, int mask, const char *fmt, ...)
 	va_list argptr;
 	if ((mask & kcp->logmask) == 0 || kcp->writelog == 0) return;
 	va_start(argptr, fmt);
-	vsprintf(buffer, fmt, argptr);
+	vsnprintf(buffer, sizeof(buffer), fmt, argptr);
+	buffer[sizeof(buffer) - 1] = '\0';
 	va_end(argptr);
 	kcp->writelog(buffer, kcp, kcp->user);
 }
