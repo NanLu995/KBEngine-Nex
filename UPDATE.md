@@ -20,6 +20,7 @@
 - [perf] 给 c++层的 Python Map 增加 clear， pop 成员函数 [Issue #129](https://github.com/KBEngineLab/KBEngine-Nex/issues/129)
 - [perf] c++升级到兼容17/20 [Issue #132](https://github.com/KBEngineLab/KBEngine-Nex/issues/132)
 - [perf] 优化掉所有的Warning [Issue #133](https://github.com/KBEngineLab/KBEngine-Nex/issues/133)
+- [perf] c++ sdk 移除libhv依赖
 
 ## 2.7.4
 - [feat] NavMesh Generator 添加了一个坐标配置管理器
