@@ -394,9 +394,9 @@ void KBEngineApp::process()
 
 	GameThreadDispatcher::Instance().Pump();
 
-	KBEvent::processOutEvents();
-	// 处理外层抛入的事件
 	KBEvent::processInEvents();
+	
+	KBEvent::processOutEvents();
 
 	// 向服务端发送心跳以及同步角色信息到服务端
 	sendTick();

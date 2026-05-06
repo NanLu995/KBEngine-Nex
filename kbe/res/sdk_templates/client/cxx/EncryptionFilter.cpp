@@ -358,7 +358,7 @@ bool BlowfishFilter::recv(MessageReader* pMessageReader, MemoryStream* pPacket) 
         // 处理消息
         if (pMessageReader) {
             // 这里需要实现MessageReader::process接口
-            // pMessageReader->process(pPacket_->data() + pPacket_->rpos(), 0, pPacket_->length());
+            pMessageReader->process(pPacket_->data() + pPacket_->rpos(), 0, pPacket_->length());
         }
 
         // 处理剩余数据
