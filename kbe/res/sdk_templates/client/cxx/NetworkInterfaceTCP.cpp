@@ -75,7 +75,7 @@ bool NetworkInterfaceTCP::connectTo(const KBString &addr, uint16 port, Interface
 						auto pEventData = std::make_shared<UKBEventData_onConnectionState>();
 						pEventData->success = true;
 						pEventData->address = KBString::Printf(KBTEXT("%s:%d"), *connectIP_, connectPort_);
-						KBENGINE_EVENT_FIRE(KBEventTypes::onConnectionState, pEventData);
+						KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onConnectionState, pEventData);
 
 				   }
 			    );
@@ -95,7 +95,7 @@ bool NetworkInterfaceTCP::connectTo(const KBString &addr, uint16 port, Interface
 					   auto pEventData = std::make_shared<UKBEventData_onConnectionState>();
 					   pEventData->success = false;
 					   pEventData->address = KBString::Printf(KBTEXT("%s:%d"), *connectIP_, connectPort_);
-					   KBENGINE_EVENT_FIRE(KBEventTypes::onConnectionState, pEventData);
+					   KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onConnectionState, pEventData);
 				   }
 			   );
 			}
@@ -185,7 +185,7 @@ void NetworkInterfaceTCP::close() {
 		// socket_->onMessage = nullptr;
 		// socket_->onConnection = nullptr;
 		INFO_MSG("NetworkInterfaceTCP::close(): network closed!");
-		KBENGINE_EVENT_FIRE(KBEventTypes::onDisconnected, std::make_shared<UKBEventData_onDisconnected>());
+		KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onDisconnected, std::make_shared<UKBEventData_onDisconnected>());
 		socket_ = nullptr;
 	}
 	
