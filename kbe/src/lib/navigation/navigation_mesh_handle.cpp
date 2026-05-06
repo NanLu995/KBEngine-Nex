@@ -6,6 +6,8 @@
 #include "thread/threadguard.h"
 #include "math/math.h"
 
+#include <cfloat>
+
 namespace KBEngine{	
 
 // Returns a random number [0..1)
@@ -13,6 +15,102 @@ static float frand()
 {
 //	return ((float)(rand() & 0xffff)/(float)0xffff);
 	return (float)rand()/(float)RAND_MAX;
+}
+
+static bool overlapSegmentAABB(const float* s, const float* e, const float* bmin, const float* bmax)
+{
+	const float eps = 0.001f;
+	for (int i = 0; i < 3; ++i)
+	{
+		const float segMin = dtMin(s[i], e[i]) - eps;
+		const float segMax = dtMax(s[i], e[i]) + eps;
+		if (segMax < bmin[i] || segMin > bmax[i])
+			return false;
+	}
+
+	return true;
+}
+
+static bool intersectSegmentTriangle(const float* s, const float* e, const float* v0, const float* v1, const float* v2, float& t)
+{
+	const float eps = 0.000001f;
+	float dir[3], edge1[3], edge2[3], pvec[3], tvec[3], qvec[3];
+	dtVsub(dir, e, s);
+	dtVsub(edge1, v1, v0);
+	dtVsub(edge2, v2, v0);
+	dtVcross(pvec, dir, edge2);
+
+	const float det = dtVdot(edge1, pvec);
+	if (fabsf(det) < eps)
+		return false;
+
+	const float invDet = 1.0f / det;
+	dtVsub(tvec, s, v0);
+
+	const float u = dtVdot(tvec, pvec) * invDet;
+	if (u < -eps || u > 1.0f + eps)
+		return false;
+
+	dtVcross(qvec, tvec, edge1);
+	const float v = dtVdot(dir, qvec) * invDet;
+	if (v < -eps || u + v > 1.0f + eps)
+		return false;
+
+	t = dtVdot(edge2, qvec) * invDet;
+	return t >= -eps && t <= 1.0f + eps;
+}
+
+static const float* getDetailTriVert(const dtMeshTile* tile, const dtPoly* poly, const dtPolyDetail* detail, unsigned char idx)
+{
+	if (idx < poly->vertCount)
+		return &tile->verts[poly->verts[idx] * 3];
+
+	return &tile->detailVerts[(detail->vertBase + idx - poly->vertCount) * 3];
+}
+
+static bool raycastNavmeshGeometry(const dtNavMesh* navmesh, const float* s, const float* e, const dtQueryFilter& filter, float* hitPoint)
+{
+	float bestT = FLT_MAX;
+	bool hit = false;
+
+	for (int32 i = 0; i < navmesh->getMaxTiles(); ++i)
+	{
+		const dtMeshTile* tile = navmesh->getTile(i);
+		if (!tile || !tile->header || !overlapSegmentAABB(s, e, tile->header->bmin, tile->header->bmax))
+			continue;
+
+		for (int j = 0; j < tile->header->polyCount; ++j)
+		{
+			const dtPoly* poly = &tile->polys[j];
+			const dtPolyRef polyRef = navmesh->getPolyRefBase(tile) | (dtPolyRef)j;
+			if (poly->getType() != DT_POLYTYPE_GROUND || !filter.passFilter(polyRef, tile, poly))
+				continue;
+
+			const dtPolyDetail* detail = &tile->detailMeshes[j];
+			for (int k = 0; k < detail->triCount; ++k)
+			{
+				const unsigned char* tri = &tile->detailTris[(detail->triBase + k) * 4];
+				const float* v0 = getDetailTriVert(tile, poly, detail, tri[0]);
+				const float* v1 = getDetailTriVert(tile, poly, detail, tri[1]);
+				const float* v2 = getDetailTriVert(tile, poly, detail, tri[2]);
+
+				float t = 0.0f;
+				if (intersectSegmentTriangle(s, e, v0, v1, v2, t) && t < bestT)
+				{
+					bestT = dtClamp(t, 0.0f, 1.0f);
+					hit = true;
+				}
+			}
+		}
+	}
+
+	if (!hit)
+		return false;
+
+	hitPoint[0] = s[0] + (e[0] - s[0]) * bestT;
+	hitPoint[1] = s[1] + (e[1] - s[1]) * bestT;
+	hitPoint[2] = s[2] + (e[2] - s[2]) * bestT;
+	return true;
 }
 
 //-------------------------------------------------------------------------------------
@@ -360,6 +458,12 @@ int NavMeshHandle::raycast(int layer, const Position3D& start, const Position3D&
 	dtQueryFilter filter;
 	filter.setIncludeFlags(0xffff);
 	filter.setExcludeFlags(0);
+
+	if (raycastNavmeshGeometry(iter->second.pNavmesh, spos, epos, filter, hitPoint))
+	{
+		hitPointVec.push_back(Position3D(hitPoint[0], hitPoint[1], hitPoint[2]));
+		return 1;
+	}
 
 	const float extents[3] = {2.f, 4.f, 2.f};
 
