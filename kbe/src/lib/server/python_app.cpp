@@ -2,6 +2,7 @@
 
 
 #include "python_app.h"
+#include "asyncio_helper.h"
 #include "pyscript/py_memorystream.h"
 #include "server/py_file_descriptor.h"
 
@@ -85,6 +86,10 @@ bool PythonApp::initializeEnd()
 {
 	gameTickTimerHandle_ = this->dispatcher().addTimer(1000000 / g_kbeSrvConfig.gameUpdateHertz(), this,
 		reinterpret_cast<void *>(TIMEOUT_GAME_TICK));
+
+	// PythonApp类组件在主线程安装asyncio timer，用来周期性推进协程。
+	if (!AsyncioHelper::installTimer(&scriptTimers_))
+		return false;
 	
 	return true;
 }
@@ -104,6 +109,10 @@ void PythonApp::onShutdownEnd()
 //-------------------------------------------------------------------------------------
 void PythonApp::finalise(void)
 {
+	// 先关闭asyncio，取消未完成协程，避免卸载Python脚本时仍有Task持有对象。
+	AsyncioHelper::shutdown();
+
+	// 再取消普通脚本timer并释放Python脚本环境。
 	gameTickTimerHandle_.cancel();
 	scriptTimers_.cancelAll();
 	ScriptTimers::finalise(*this);

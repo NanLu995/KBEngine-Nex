@@ -225,7 +225,6 @@ Baseapp::Baseapp(Network::EventDispatcher& dispatcher,
 			 COMPONENT_TYPE componentType,
 			 COMPONENT_ID componentID):
 	EntityApp<Entity>(dispatcher, ninterface, componentType, componentID),
-	asyncTimerTimers_(),
 	loopCheckTimerHandle_(),
 	pBaseAppData_(NULL),
 	pendingLoginMgr_(ninterface),
@@ -612,67 +611,11 @@ bool Baseapp::initializeBegin()
 
 //-------------------------------------------------------------------------------------	
 
-/**
-内部定时器处理类
-*/
-class AsyncTimerHandler : public TimerHandler
-{
-public:
-	AsyncTimerHandler(ScriptTimers* scriptTimers, PyObject* callback) :
-		pyCallback_(callback),
-		asyncTimerTimers_(scriptTimers)
-	{
-		Py_INCREF(pyCallback_);
-	}
-
-	~AsyncTimerHandler()
-	{
-		Py_DECREF(pyCallback_);
-	}
-
-private:
-	virtual void handleTimeout(TimerHandle handle, void* pUser)
-	{
-		int id = ScriptTimersUtil::getIDForHandle(asyncTimerTimers_, handle);
-
-		PyObject* pyRet = PyObject_CallFunction(pyCallback_, "i", id);
-		if (pyRet == NULL)
-		{
-			SCRIPT_ERROR_CHECK();
-			return;
-		}
-		return;
-	}
-
-	virtual void onRelease(TimerHandle handle, void* /*pUser*/)
-	{
-		asyncTimerTimers_->releaseTimer(handle);
-		delete this;
-	}
-
-	PyObject* pyCallback_;
-	ScriptTimers* asyncTimerTimers_;
-};
-//-------------------------------------------------------------------------------------
 bool Baseapp::initializeEnd()
 {
 	// 添加一个timer， 每秒检查一些状态
 	loopCheckTimerHandle_ = this->dispatcher().addTimer(1000000, this,
 							reinterpret_cast<void *>(TIMEOUT_CHECK_STATUS));
-
-	if (g_kbeSrvConfig.asyncioRepeatOffset() <= 0.f)
-	{
-		// 添加一个timer用于python解释器保活
-		PyObject* dispatcherMod = PyImport_ImportModule("async_dispatcher");
-		PyObject* submitFunc = PyObject_GetAttrString(dispatcherMod, "onAsyncTimer");
-
-		ScriptTimers* pTimers = &asyncTimerTimers_;
-		AsyncTimerHandler*handler = new AsyncTimerHandler(pTimers, submitFunc);
-		ScriptTimersUtil::addTimer(&pTimers,0.1f,g_kbeSrvConfig.asyncioRepeatOffset(),0, handler);
-	}
-	
-
-	
 
 	if(Resmgr::respool_checktick > 0)
 	{
@@ -719,7 +662,6 @@ void Baseapp::finalise()
 	loopCheckTimerHandle_.cancel();
 	pResmgrTimerHandle_.cancel();
 	forward_messagebuffer_.clear();
-	asyncTimerTimers_.cancelAll();
 
 	if (pBundleImportEntityDefDatas_)
 	{

@@ -25,6 +25,7 @@
 - [perf] c++升级到兼容17/20 [Issue #132](https://github.com/KBEngineLab/KBEngine-Nex/issues/132)
 - [perf] 优化掉所有的Warning [Issue #133](https://github.com/KBEngineLab/KBEngine-Nex/issues/133)
 - [perf] c++ sdk 移除libhv依赖
+- [perf] python async调度迁移到c++底层 [Issue #137](https://github.com/KBEngineLab/KBEngine-Nex/issues/137)
 
 ## 2.7.4
 - [feat] NavMesh Generator 添加了一个坐标配置管理器

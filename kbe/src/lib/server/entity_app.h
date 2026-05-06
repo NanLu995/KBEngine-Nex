@@ -18,6 +18,7 @@
 #include "helper/profile.h"
 #include "server/kbemain.h"	
 #include "server/script_timers.h"
+#include "server/asyncio_helper.h"
 #include "server/idallocate.h"
 #include "server/serverconfig.h"
 #include "server/globaldata_client.h"
@@ -229,6 +230,9 @@ protected:
 
 	TimerHandle												gameTimer_;
 
+	// asyncio专用timer容器：第一步保存主线程pump timer，第二步在finalise里统一取消。
+	ScriptTimers											asyncioTimers_;
+
 	// globalData
 	GlobalDataClient*										pGlobalData_;
 
@@ -253,6 +257,7 @@ entryScript_(),
 idClient_(),
 pEntities_(NULL),
 gameTimer_(),
+asyncioTimers_(),
 pGlobalData_(NULL),
 pyCallbackMgr_(),
 lastTimestamp_(timestamp()),
@@ -295,6 +300,9 @@ bool EntityApp<E>::initialize()
 	{
 		gameTimer_ = this->dispatcher().addTimer(1000000 / g_kbeSrvConfig.gameUpdateHertz(), this,
 								reinterpret_cast<void *>(TIMEOUT_GAME_TICK));
+
+		// EntityApp类组件在主线程安装asyncio timer，用来周期性推进协程。
+		ret = AsyncioHelper::installTimer(&asyncioTimers_);
 	}
 
 	lastTimestamp_ = timestamp();
@@ -311,7 +319,12 @@ bool EntityApp<E>::initializeWatcher()
 template<class E>
 void EntityApp<E>::finalise(void)
 {
+	// 先关闭asyncio，取消未完成协程，避免实体和组件卸载时仍被Task持有。
+	AsyncioHelper::shutdown();
+
+	// 再取消游戏timer并继续原有实体清理流程。
 	gameTimer_.cancel();
+	asyncioTimers_.cancelAll();
 
 	WATCH_FINALIZE;
 	

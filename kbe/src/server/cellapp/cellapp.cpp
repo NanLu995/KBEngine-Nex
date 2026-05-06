@@ -270,48 +270,6 @@ bool Cellapp::initializeBegin()
 
 //-------------------------------------------------------------------------------------	
 
-/**
-内部定时器处理类
-*/
-class AsyncTimerHandler : public TimerHandler
-{
-public:
-	AsyncTimerHandler(ScriptTimers* scriptTimers, PyObject* callback) :
-		pyCallback_(callback),
-		asyncTimerTimers_(scriptTimers)
-	{
-		Py_INCREF(pyCallback_);
-	}
-
-	~AsyncTimerHandler()
-	{
-		Py_DECREF(pyCallback_);
-	}
-
-private:
-	virtual void handleTimeout(TimerHandle handle, void* pUser)
-	{
-		int id = ScriptTimersUtil::getIDForHandle(asyncTimerTimers_, handle);
-
-		PyObject* pyRet = PyObject_CallFunction(pyCallback_, "i", id);
-		if (pyRet == NULL)
-		{
-			SCRIPT_ERROR_CHECK();
-			return;
-		}
-		return;
-	}
-
-	virtual void onRelease(TimerHandle handle, void* /*pUser*/)
-	{
-		asyncTimerTimers_->releaseTimer(handle);
-		delete this;
-	}
-
-	PyObject* pyCallback_;
-	ScriptTimers* asyncTimerTimers_;
-};
-
 //-------------------------------------------------------------------------------------
 bool Cellapp::initializeEnd()
 {
@@ -323,17 +281,6 @@ bool Cellapp::initializeEnd()
 	}
 
 	pWitnessedTimeoutHandler_ = new WitnessedTimeoutHandler();
-
-	if (g_kbeSrvConfig.asyncioRepeatOffset() <= 0.f)
-	{
-		PyObject* dispatcherMod = PyImport_ImportModule("async_dispatcher");
-		PyObject* submitFunc = PyObject_GetAttrString(dispatcherMod, "onAsyncTimer");
-
-		ScriptTimers* pTimers = &asyncTimerTimers_;
-		AsyncTimerHandler* handler = new AsyncTimerHandler(pTimers, submitFunc);
-		ScriptTimersUtil::addTimer(&pTimers, 0.1f, g_kbeSrvConfig.asyncioRepeatOffset(), 0, handler);
-	}
-	
 
 	// 是否管理Y轴
 	CoordinateSystem::hasY = g_kbeSrvConfig.getCellApp().coordinateSystem_hasY;
@@ -372,7 +319,6 @@ void Cellapp::finalise()
 	forward_messagebuffer_.clear();
 	updatables_.clear();
 
-	asyncTimerTimers_.cancelAll();
 	destroyObjPool();
 	EntityApp<Entity>::finalise();
 }

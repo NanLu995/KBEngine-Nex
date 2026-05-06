@@ -138,48 +138,6 @@ bool Interfaces::inInitialize()
 
 //-------------------------------------------------------------------------------------	
 
-/**
-内部定时器处理类
-*/
-class AsyncTimerHandler : public TimerHandler
-{
-public:
-	AsyncTimerHandler(ScriptTimers* scriptTimers, PyObject* callback) :
-		pyCallback_(callback),
-		asyncTimerTimers_(scriptTimers)
-	{
-		Py_INCREF(pyCallback_);
-	}
-
-	~AsyncTimerHandler()
-	{
-		Py_DECREF(pyCallback_);
-	}
-
-private:
-	virtual void handleTimeout(TimerHandle handle, void* pUser)
-	{
-		int id = ScriptTimersUtil::getIDForHandle(asyncTimerTimers_, handle);
-
-		PyObject* pyRet = PyObject_CallFunction(pyCallback_, "i", id);
-		if (pyRet == NULL)
-		{
-			SCRIPT_ERROR_CHECK();
-			return;
-		}
-		return;
-	}
-
-	virtual void onRelease(TimerHandle handle, void* /*pUser*/)
-	{
-		asyncTimerTimers_->releaseTimer(handle);
-		delete this;
-	}
-
-	PyObject* pyCallback_;
-	ScriptTimers* asyncTimerTimers_;
-};
-
 //-------------------------------------------------------------------------------------
 bool Interfaces::initializeEnd()
 {
@@ -187,19 +145,6 @@ bool Interfaces::initializeEnd()
 
 	mainProcessTimer_ = this->dispatcher().addTimer(1000000 / g_kbeSrvConfig.gameUpdateHertz(), this,
 							reinterpret_cast<void *>(TIMEOUT_TICK));
-
-
-	if (g_kbeSrvConfig.asyncioRepeatOffset() <= 0.f)
-	{
-		// 添加一个timer用于python解释器保活
-		PyObject* dispatcherMod = PyImport_ImportModule("async_dispatcher");
-		PyObject* submitFunc = PyObject_GetAttrString(dispatcherMod, "onAsyncTimer");
-
-		ScriptTimers* pTimers = &asyncTimerTimers_;
-		AsyncTimerHandler* handler = new AsyncTimerHandler(pTimers, submitFunc);
-		ScriptTimersUtil::addTimer(&pTimers, 0.1f, g_kbeSrvConfig.asyncioRepeatOffset(), 0, handler);
-	}
-	
 
 	// 不做频道超时检查
 	CLOSE_CHANNEL_INACTIVITIY_DETECTION();
@@ -267,7 +212,6 @@ void Interfaces::finalise()
 	}
 
 	pyCallbackMgr_.finalise();
-	asyncTimerTimers_.cancelAll();
 
 	PythonApp::finalise();
 }

@@ -240,19 +240,6 @@ PyObject* MethodDescription::call(PyObject* func, PyObject* args)
 	}
 
 	if (pyResult) {
-		/*int isAwaitable = PyObject_HasAttrString(pyResult, "__await__");
-		if (isAwaitable > 0) {
-			PyObject* dispatcherMod = PyImport_ImportModule("async_dispatcher");
-			PyObject* submitFunc = PyObject_GetAttrString(dispatcherMod, "submit_coroutine");
-			PyObject* fut = PyObject_CallFunctionObjArgs(submitFunc, pyResult, NULL);
-			if (!fut) {
-				PyErr_PrintEx(0);
-			}
-			Py_XDECREF(fut);
-			Py_XDECREF(dispatcherMod);
-			Py_XDECREF(submitFunc);
-		}*/
-
 		AsyncioHelper::submitCoroutine(pyResult);
 
 	}
