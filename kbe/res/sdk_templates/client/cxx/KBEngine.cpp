@@ -687,7 +687,7 @@ void KBEngineApp::Client_onImportClientSDK(MemoryStream& stream)
 	pEventData->fileSize = stream.readInt32();
 	stream.readBlob(pEventData->fileDatas);
 
-	KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onImportClientSDK, pEventData);
+	KBENGINE_EVENT_FIRE_ALL("onImportClientSDK", pEventData);
 }
 
 void KBEngineApp::Client_onKicked(uint16 failedcode)
