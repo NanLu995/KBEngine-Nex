@@ -16,6 +16,8 @@
 - [feat] kbex 进程管理优化 https://www.kbelab.com/kbenginex/home.html [Issue #122](https://github.com/KBEngineLab/KBEngine-Nex/issues/122)
 - [feat] kbex 可视化功能添加 https://www.kbelab.com/kbenginex/home.html [Issue #123](https://github.com/KBEngineLab/KBEngine-Nex/issues/123)
 - [feat] 兔子世界案例迁移到Nex https://github.com/KBEngineLab/demo_kbengine_unity_rabbit
+- [perf] 升级TS SDK Event 区分out/in事件注册与触发 [Issue #126](https://github.com/KBEngineLab/KBEngine-Nex/issues/126)
+- [fix] 修复使用navigateToDetour时，结束移动后navigateToDetour不被同步导致entity乱跳跃的的bug
 
 ## 2.7.4
 - [feat] NavMesh Generator 添加了一个坐标配置管理器
