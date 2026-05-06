@@ -155,6 +155,8 @@ int	TelnetServer::handleInputNotification(int fd)
 #if KBE_PLATFORM == PLATFORM_WIN32
 		if (Network::IocpPoller* pIocpPoller = dynamic_cast<Network::IocpPoller*>(pDispatcher_->pPoller()))
 		{
+			// IOCP listener 只消费 AcceptEx completion。
+			// 没有完成的 accepted socket 时直接退出本轮，避免和同步 accept 混用。
 			KBESOCKET acceptedSocket = INVALID_SOCKET;
 			if (pIocpPoller->takeAcceptedSocket(fd, acceptedSocket))
 			{
@@ -175,10 +177,14 @@ int	TelnetServer::handleInputNotification(int fd)
 						fd, kbe_strerror(WSAGetLastError())));
 				}
 			}
-		}
-#endif
 
-		if (pNewEndPoint == NULL)
+			if (pNewEndPoint == NULL)
+			{
+				break;
+			}
+		}
+		else
+#endif
 		{
 			pNewEndPoint = listener_.accept();
 		}
