@@ -2,8 +2,10 @@
 
 #pragma once
 
+#include <algorithm>
 #include <codecvt>
 #include <locale>
+#include <type_traits>
 
 #include "KBECommon.h"
 #include "KBDebug.h"

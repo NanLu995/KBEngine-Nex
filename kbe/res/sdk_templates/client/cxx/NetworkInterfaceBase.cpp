@@ -6,7 +6,6 @@
 #include "Interfaces.h"
 #include "KBEngine.h"
 #include "MessageReader.h"
-#include "TcpClient.h"
 
 namespace KBEngine
 {

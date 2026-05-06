@@ -11,19 +11,24 @@
 namespace KBEngine
 {
 
-NetworkInterfaceTCP::NetworkInterfaceTCP(): NetworkInterfaceBase()
+NetworkInterfaceTCP::NetworkInterfaceTCP():
+	NetworkInterfaceBase(),
+	stopRequested_(false),
+	connected_(false),
+	disconnectedEventPending_(false),
+	sessionId_(0),
+	socket_(NativeSocket::InvalidSocket)
 {
-	// DEBUG_MSG("NetworkInterfaceTCP::NetworkInterfaceTCP():");
 }
 
 NetworkInterfaceTCP::~NetworkInterfaceTCP()
 {
-	// DEBUG_MSG("NetworkInterfaceTCP::~NetworkInterfaceTCP():");
 	NetworkInterfaceTCP::reset();
 }
 
-bool NetworkInterfaceTCP::connectTo(const KBString &addr, uint16 port, InterfaceConnect *callback, int userdata) {
-	INFO_MSG("NetworkInterfaceTCP::connectTo(): will connect to %s:%d ...", addr.c_str(), port);
+bool NetworkInterfaceTCP::connectTo(const KBString& addr, uint16 port, InterfaceConnect* callback, int userdata)
+{
+	INFO_MSG("NetworkInterfaceTCP::connectTo(): will connect to %s:%d ...", *addr, port);
 	reset();
 
 	connectCB_ = callback;
@@ -32,142 +37,22 @@ bool NetworkInterfaceTCP::connectTo(const KBString &addr, uint16 port, Interface
 	connectUserdata_ = userdata;
 	startTime_ = getTimeSeconds();
 
+	stopRequested_ = false;
+	connected_ = false;
+	disconnectedEventPending_ = false;
 
-	// Loop = std::make_shared<hv::EventLoopThread>();
-
-	// Loop->start();
-	// 如果 socket_ 没创建，就创建 TcpClient
-	if (!socket_) {
-		socket_ = std::make_shared<hv::TcpClient>();
-	}
-
-
-
-
-	// printf(TCHARToANSI(*addr).c_str());
-	int ret = socket_->createsocket(port, TCHARToANSI(*addr).c_str());
-	if (ret < 0) {
-		ERROR_MSG("NetworkInterfaceBase::connectTo(): createsocket failed %d", ret);
-		return false;
-	}
-
-
-	socket_->setConnectTimeout(30000);
-
-	// 30秒超时
-	// startTime_ = hv::gettimeofday();
-
-	// 连接成功回调
-	socket_->onConnection = [this](const hv::SocketChannelPtr& ch) {
-		// printf("connectCB_: %d  %d %d\n", ch->isConnected(),ch->isClosed(),ch->isOpened());
-
-		if (connectCB_) {
-			if (ch->isConnected()) {
-				INFO_MSG("NetworkInterfaceTCP::connectTo(): connect to  %s success!", ch->peeraddr().c_str());
-				auto connectCB = connectCB_;
-				GameThreadDispatcher::Instance().Post(
-				   [this, connectCB]() mutable
-				   {
-				   		connectCB->onConnectCallback(connectIP_, connectPort_, true, connectUserdata_);
-						// connectCB_ = nullptr;
-						connectCB = nullptr;
-
-						auto pEventData = std::make_shared<UKBEventData_onConnectionState>();
-						pEventData->success = true;
-						pEventData->address = KBString::Printf(KBTEXT("%s:%d"), *connectIP_, connectPort_);
-						KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onConnectionState, pEventData);
-
-				   }
-			    );
-				connectCB_ = nullptr;
-
-			}else {
-				// 连接超时或者无法连接
-				ERROR_MSG("NetworkInterfaceTCP::connectTo(): connect to %s timeout!", ch->peeraddr().c_str());
-				auto connectCB = connectCB_;
-				connectCB_ = nullptr;
-				GameThreadDispatcher::Instance().Post(
-				   [this,connectCB]() mutable
-				   {
-					   connectCB->onConnectCallback(connectIP_, connectPort_, false, connectUserdata_);
-					   connectCB = nullptr;
-
-					   auto pEventData = std::make_shared<UKBEventData_onConnectionState>();
-					   pEventData->success = false;
-					   pEventData->address = KBString::Printf(KBTEXT("%s:%d"), *connectIP_, connectPort_);
-					   KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onConnectionState, pEventData);
-				   }
-			   );
-			}
-
-		}
-
-
-	};
-
-
-	// 数据回调
-	socket_->onMessage = [this](const hv::SocketChannelPtr& ch, hv::Buffer* buf) {
-
-		const auto* data  = reinterpret_cast<const uint8_t*>(buf->data());
-		size_t len = buf->size();
-		pBuffer_->clear(true);
-		pBuffer_->append(data, len);
-
-		if (pFilter_) {
-			pFilter_->recv(pMessageReader_,pBuffer_);
-		}else {
-			pMessageReader_->process(pBuffer_->data(), 0, len);
-		}
-
-
-		// const auto* begin  = reinterpret_cast<const uint8_t*>(buf->data());
-		// size_t len = buf->size();
-		// std::vector<uint8_t> data(begin , begin  + len);
-		// // 这里要改，应该操作完io后再投递进去
-		// GameThreadDispatcher::Instance().Post(
-		// 	[this, data = std::move(data), len]() mutable
-		// 	{
-		//
-		// 		MemoryStream pBuffer;
-		// 		pBuffer.clear(true);
-		// 		pBuffer.append(data.data(), data.size());
-		//
-		//
-		// 		if (pFilter_) {
-		// 			pFilter_->recv(pMessageReader_,&pBuffer);
-		// 		}else {
-		// 			pMessageReader_->process(pBuffer.data(), 0, len);
-		// 		}
-		// 	}
-		// );
-
-
-
-	};
-	// 新建一个事件循环对象
-	socket_->start();  // 启动 EventLoop
-
-
-
-	// socket_->startConnect();
-
+	const uint64 sessionId = ++sessionId_;
+	workerThread_ = std::thread(&NetworkInterfaceTCP::workerLoop_, this, addr, port, callback, userdata, sessionId);
 	return true;
 }
 
-void NetworkInterfaceTCP::reset() {
+void NetworkInterfaceTCP::reset()
+{
+	stopWorker_();
+	clearRecvQueue_();
 
-	if (socket_)
-	{
-
-		socket_->stop();
-		socket_->closesocket();
-		// socket_->onMessage = nullptr;
-		// socket_->onConnection = nullptr;
-		INFO_MSG("NetworkInterfaceTCP::reset(): network reset!");
-		socket_ = nullptr;
-	}
-
+	disconnectedEventPending_ = false;
+	connected_ = false;
 	connectCB_ = nullptr;
 	connectIP_ = KBTEXT("");
 	connectPort_ = 0;
@@ -175,63 +60,219 @@ void NetworkInterfaceTCP::reset() {
 	startTime_ = 0.0;
 }
 
-void NetworkInterfaceTCP::close() {
+void NetworkInterfaceTCP::close()
+{
+	stopWorker_();
+	clearRecvQueue_();
 
-	if (socket_)
-	{
-
-		socket_->stop();
-		socket_->closesocket();
-		// socket_->onMessage = nullptr;
-		// socket_->onConnection = nullptr;
-		INFO_MSG("NetworkInterfaceTCP::close(): network closed!");
-		KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onDisconnected, std::make_shared<UKBEventData_onDisconnected>());
-		socket_ = nullptr;
-	}
-	
 	KBE_SAFE_RELEASE(pMessageReader_);
 	KBE_SAFE_RELEASE(pBuffer_);
 	KBE_SAFE_RELEASE(pFilter_);
+
+	disconnectedEventPending_ = false;
+	connected_ = false;
 	connectCB_ = nullptr;
 	connectIP_ = KBTEXT("");
 	connectPort_ = 0;
 	connectUserdata_ = 0;
 	startTime_ = 0.0;
 
-
-
-
+	INFO_MSG("NetworkInterfaceTCP::close(): network closed!");
+	KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onDisconnected, std::make_shared<UKBEventData_onDisconnected>());
 }
 
-bool NetworkInterfaceTCP::valid() {
-	return socket_ != nullptr;
+bool NetworkInterfaceTCP::valid()
+{
+	return connected_.load();
 }
 
+bool NetworkInterfaceTCP::sendTo(MemoryStream* pMemoryStream)
+{
+	if (!pMemoryStream || pMemoryStream->length() == 0)
+	{
+		return true;
+	}
 
-bool NetworkInterfaceTCP::sendTo(MemoryStream *pMemoryStream) {
-	if (!socket_) {
-		ERROR_MSG("NetworkInterfaceKCP::sendTo(): socket is null!");
+	NativeSocket::Socket socket = NativeSocket::InvalidSocket;
+	{
+		std::lock_guard<std::mutex> lock(socketMutex_);
+		socket = socket_;
+	}
+
+	if (!connected_.load() || !NativeSocket::isValid(socket))
+	{
+		ERROR_MSG("NetworkInterfaceTCP::sendTo(): socket is invalid!");
 		return false;
 	}
 
-	if (!pMemoryStream || pMemoryStream->length() == 0)
-		return true;
-
-	int ret = socket_->send(pMemoryStream->data(), pMemoryStream->length());
-	if (ret < 0) {
-		ERROR_MSG("NetworkInterfaceKCP::sendTo(): sendto failed ret=%d", ret);
+	std::lock_guard<std::mutex> sendLock(sendMutex_);
+	std::string error;
+	if (!NativeSocket::sendAll(socket, pMemoryStream->data(), pMemoryStream->length(), error))
+	{
+		ERROR_MSG("NetworkInterfaceTCP::sendTo(): send failed, err=%s", error.c_str());
+		closeSocket_(true);
 		return false;
 	}
 
 	return true;
-	// return socket_->send(pMemoryStream->data(),pMemoryStream->length());
 }
 
 void NetworkInterfaceTCP::process()
 {
-	// if (Loop) {
-	// 	hloop_process_events(Loop->loop(),0); // 手动驱动一次事件循环
-	// }
+	std::queue<std::vector<uint8>> pending;
+	{
+		std::lock_guard<std::mutex> lock(recvMutex_);
+		std::swap(pending, recvQueue_);
+	}
+
+	while (!pending.empty())
+	{
+		const std::vector<uint8>& data = pending.front();
+		if (!data.empty() && pMessageReader_)
+		{
+			pBuffer_->clear(true);
+			pBuffer_->append(data.data(), data.size());
+
+			if (pFilter_)
+			{
+				pFilter_->recv(pMessageReader_, pBuffer_);
+			}
+			else
+			{
+				pMessageReader_->process(pBuffer_->data(), 0, pBuffer_->length());
+			}
+		}
+
+		pending.pop();
+	}
+
+	if (disconnectedEventPending_.exchange(false))
+	{
+		KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onDisconnected, std::make_shared<UKBEventData_onDisconnected>());
+	}
+}
+
+void NetworkInterfaceTCP::workerLoop_(KBString addr, uint16 port, InterfaceConnect* callback, int userdata, uint64 sessionId)
+{
+	NativeSocket::Socket socket = NativeSocket::InvalidSocket;
+	std::string error;
+	if (!NativeSocket::connectTcp(addr, port, 30000, socket, error))
+	{
+		ERROR_MSG("NetworkInterfaceTCP::connectTo(): connect to %s:%d failed, err=%s", *addr, port, error.c_str());
+		fireConnectionState_(callback, addr, port, false, userdata, sessionId);
+		return;
+	}
+
+	{
+		std::lock_guard<std::mutex> lock(socketMutex_);
+		if (sessionId != sessionId_.load() || stopRequested_.load())
+		{
+			NativeSocket::closeSocket(socket);
+			return;
+		}
+
+		socket_ = socket;
+		connected_ = true;
+	}
+
+	INFO_MSG("NetworkInterfaceTCP::connectTo(): connect to %s:%d success!", *addr, port);
+	fireConnectionState_(callback, addr, port, true, userdata, sessionId);
+
+	uint8 buffer[65536];
+	while (!stopRequested_.load() && sessionId == sessionId_.load())
+	{
+		const int received = NativeSocket::recvSome(socket, buffer, sizeof(buffer), error);
+		if (received > 0)
+		{
+			std::vector<uint8> data(buffer, buffer + received);
+			std::lock_guard<std::mutex> lock(recvMutex_);
+			recvQueue_.push(std::move(data));
+			continue;
+		}
+
+		if (received == 0)
+		{
+			INFO_MSG("NetworkInterfaceTCP::workerLoop_(): peer closed connection.");
+			break;
+		}
+
+		if (!stopRequested_.load())
+		{
+			ERROR_MSG("NetworkInterfaceTCP::workerLoop_(): recv failed, err=%s", error.c_str());
+		}
+		break;
+	}
+
+	closeSocket_(!stopRequested_.load() && sessionId == sessionId_.load());
+}
+
+void NetworkInterfaceTCP::stopWorker_()
+{
+	++sessionId_;
+	stopRequested_ = true;
+	closeSocket_(false);
+
+	if (workerThread_.joinable())
+	{
+		workerThread_.join();
+	}
+}
+
+void NetworkInterfaceTCP::clearRecvQueue_()
+{
+	std::lock_guard<std::mutex> lock(recvMutex_);
+	std::queue<std::vector<uint8>> empty;
+	std::swap(recvQueue_, empty);
+}
+
+void NetworkInterfaceTCP::closeSocket_(bool fireDisconnectedEvent)
+{
+	NativeSocket::Socket socket = NativeSocket::InvalidSocket;
+	{
+		std::lock_guard<std::mutex> lock(socketMutex_);
+		socket = socket_;
+		socket_ = NativeSocket::InvalidSocket;
+		connected_ = false;
+	}
+
+	NativeSocket::closeSocket(socket);
+
+	if (fireDisconnectedEvent)
+	{
+		disconnectedEventPending_ = true;
+	}
+}
+
+void NetworkInterfaceTCP::fireConnectionState_(
+	InterfaceConnect* callback,
+	const KBString& addr,
+	uint16 port,
+	bool success,
+	int userdata,
+	uint64 sessionId)
+{
+	GameThreadDispatcher::Instance().Post(
+		[this, callback, addr, port, success, userdata, sessionId]()
+		{
+			if (sessionId != sessionId_.load())
+			{
+				return;
+			}
+
+			if (callback)
+			{
+				callback->onConnectCallback(addr, port, success, userdata);
+			}
+			if (connectCB_ == callback)
+			{
+				connectCB_ = nullptr;
+			}
+
+			auto pEventData = std::make_shared<UKBEventData_onConnectionState>();
+			pEventData->success = success;
+			pEventData->address = KBString::Printf(KBTEXT("%s:%d"), *addr, port);
+			KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onConnectionState, pEventData);
+		});
 }
 
 }

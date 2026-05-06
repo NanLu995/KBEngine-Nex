@@ -22,6 +22,8 @@
 #include "EncryptionFilter.h"
 #include "GameThreadDispatcher.h"
 
+#include <chrono>
+
 namespace KBEngine
 {
 
@@ -44,12 +46,12 @@ KBEngineApp::KBEngineApp() :
 	clientVersion_(KBTEXT("")),
 	serverScriptVersion_(KBTEXT("")),
 	clientScriptVersion_(KBTEXT("")),
-	serverProtocolMD5_(KBTEXT("@{KBE_SERVER_PROTO_MD5}")),
-	serverEntitydefMD5_(KBTEXT("@{KBE_SERVER_ENTITYDEF_MD5}")),
+	serverProtocolMD5_(KBTEXT("EB8AE9F114C8797B1E70E1A629686A27")),
+	serverEntitydefMD5_(KBTEXT("46596D3750651E9F679C7775CD577E35")),
 	entity_uuid_(0),
 	entity_id_(0),
 	entity_type_(KBTEXT("")),
-	useAliasEntityID_(@{KBE_USE_ALIAS_ENTITYID}),
+	useAliasEntityID_(true),
 	controlledEntities_(),
 	entityServerPos_(),
 	spacedatas_(),
@@ -64,7 +66,7 @@ KBEngineApp::KBEngineApp() :
 	isLoadedGeometry_(false),
 	component_(KBTEXT("client")),
 	pFilter_(NULL),
-	mainLoop_(nullptr)
+	mainLoopRunning_(false)
 	// ,
 	// pUKBETicker_(nullptr)
 {
@@ -91,12 +93,12 @@ KBEngineApp::KBEngineApp(KBEngineArgs* pArgs):
 	clientVersion_(KBTEXT("")),
 	serverScriptVersion_(KBTEXT("")),
 	clientScriptVersion_(KBTEXT("")),
-	serverProtocolMD5_(KBTEXT("@{KBE_SERVER_PROTO_MD5}")),
-	serverEntitydefMD5_(KBTEXT("@{KBE_SERVER_ENTITYDEF_MD5}")),
+	serverProtocolMD5_(KBTEXT("EB8AE9F114C8797B1E70E1A629686A27")),
+	serverEntitydefMD5_(KBTEXT("46596D3750651E9F679C7775CD577E35")),
 	entity_uuid_(0),
 	entity_id_(0),
 	entity_type_(KBTEXT("")),
-	useAliasEntityID_(@{KBE_USE_ALIAS_ENTITYID}),
+	useAliasEntityID_(true),
 	controlledEntities_(),
 	entityServerPos_(),
 	spacedatas_(),
@@ -111,7 +113,7 @@ KBEngineApp::KBEngineApp(KBEngineArgs* pArgs):
 	isLoadedGeometry_(false),
 	component_(KBTEXT("client")),
 	pFilter_(nullptr),
-	mainLoop_(nullptr)
+	mainLoopRunning_(false)
 	// pUKBETicker_(nullptr)
 {
 	INFO_MSG("KBEngineApp::KBEngineApp(): hello!");
@@ -256,9 +258,9 @@ void KBEngineApp::reset()
 	serverdatas_.Clear();
 
 	serverVersion_ = KBTEXT("");
-	clientVersion_ = KBTEXT("@{KBE_VERSION}");
+	clientVersion_ = KBTEXT("2.8.1");
 	serverScriptVersion_ = KBTEXT("");
-	clientScriptVersion_ = KBTEXT("@{KBE_SCRIPT_VERSION}");
+	clientScriptVersion_ = KBTEXT("0.1.0");
 
 	entity_uuid_ = 0;
 	entity_id_ = 0;
@@ -284,47 +286,36 @@ void KBEngineApp::reset()
 
 void KBEngineApp::installUKBETicker()
 {
-	// if (pUKBETicker_ == nullptr)
-	// {
-	// 	pUKBETicker_ = NewObject<UKBETicker>();
-	// 	pUKBETicker_->AddToRoot();
-	// }
-
-	if (mainLoop_ == nullptr) {
-		// 创建一个线程运行事件循环
-		mainLoopThread_ = std::make_shared<hv::EventLoopThread>();
-		mainLoopThread_->start(); // 内部会创建 EventLoop 并在新线程 run()
-
-		mainLoop_ = mainLoopThread_->loop(); // 获取 EventLoopPtr
-
-		if (pArgs_!= nullptr && !pArgs_->disableMainLoop) {
-			mainLoop_->setInterval(15, [this](hv::TimerID timerID) {
-				this->process();
-			});
-		}
-
-
+	if (mainLoopRunning_.load())
+	{
+		return;
 	}
 
+	if (pArgs_ != nullptr && pArgs_->disableMainLoop)
+	{
+		return;
+	}
+
+	mainLoopRunning_ = true;
+	mainLoopThread_ = std::thread([this]()
+	{
+		// 用标准线程周期驱动，保持 15ms tick，避免引入额外事件循环依赖。
+		while (mainLoopRunning_.load())
+		{
+			this->process();
+			std::this_thread::sleep_for(std::chrono::milliseconds(15));
+		}
+	});
 }
 
 void KBEngineApp::uninstallUKBETicker()
 {
-	if (mainLoop_) {
-		mainLoop_->stop();
-		mainLoop_ = nullptr;
-	}
+	mainLoopRunning_ = false;
 
-	if (mainLoopThread_) {
-		mainLoopThread_->stop();
-		mainLoopThread_ = nullptr;
+	if (mainLoopThread_.joinable())
+	{
+		mainLoopThread_.join();
 	}
-	// if (pUKBETicker_)
-	// {
-	// 	pUKBETicker_->RemoveFromRoot();
-	// 	pUKBETicker_->ConditionalBeginDestroy();
-	// 	pUKBETicker_ = nullptr;
-	// }
 }
 
 bool KBEngineApp::initNetwork()
@@ -388,9 +379,9 @@ bool KBEngineApp::validEmail(const KBString& strEmail)
 
 void KBEngineApp::process()
 {
-	// 处理网络
-	// if (pNetworkInterface_)
-	// 	pNetworkInterface_->process();
+	// 先处理 socket 收到的原始数据，MessageReader 会把解析出的消息投递到 GameThreadDispatcher。
+	if (pNetworkInterface_)
+		pNetworkInterface_->process();
 
 	GameThreadDispatcher::Instance().Pump();
 
@@ -860,22 +851,14 @@ void KBEngineApp::login_baseapp(bool noconnect)
 		KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onLoginBaseapp, pEventData);
 
 
-		mainLoop_->runInLoop([this]{
+		if (pNetworkInterface_)
+		{
+			pNetworkInterface_->destroy();
+			pNetworkInterface_ = nullptr;
 
-			if (pNetworkInterface_)
-			{
-				pNetworkInterface_->destroy();
-				pNetworkInterface_ = nullptr;
-
-				initNetwork();
-				pNetworkInterface_->connectTo(baseappIP_, (!pArgs_->forceDisableUDP && baseappUdpPort_ > 0) ? baseappUdpPort_ : baseappTcpPort_, this, 2);
-			}
-		});
-
-		// pNetworkInterface_->destroy();
-		// pNetworkInterface_ = nullptr;
-		// initNetwork();
-		// pNetworkInterface_->connectTo(baseappIP_, (!pArgs_->forceDisableUDP && baseappUdpPort_ > 0) ? baseappUdpPort_ : baseappTcpPort_, this, 2);
+			initNetwork();
+			pNetworkInterface_->connectTo(baseappIP_, (!pArgs_->forceDisableUDP && baseappUdpPort_ > 0) ? baseappUdpPort_ : baseappTcpPort_, this, 2);
+		}
 	}
 	else
 	{
