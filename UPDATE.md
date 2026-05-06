@@ -5,6 +5,9 @@
 ## 2.8.1
 - [fix] 修复使用navigateToDetour时，结束移动后navigateToDetour不被同步导致entity乱跳跃的的bug
 - [fix] 修复C++ SDK ObjectPool的一处BUG
+- [fix] 修复C++ SDK tcp下时序错乱的BUG
+- [fix] 修复 MySQL 写入和删除实体时，收集子表 DBID 使用父表名查找的问题，避免多子表场景下子表记录同步异常。
+- [feat] 新增 completionBudget 配置，限制每 tick 处理的完成事件数量和耗时，避免网络完成事件过多占满主循环。（目录仅win iocp）
 - [feat] rider支持，目前仅支持windows [Issue #135](https://github.com/KBEngineLab/KBEngine-Nex/issues/135)
 - [feat] cmake 编译器切换到ninja ，加速编译 [Issue #142](https://github.com/KBEngineLab/KBEngine-Nex/issues/142)
 - [feat] Apple Silicon支持 [Issue #37](https://github.com/KBEngineLab/KBEngine-Nex/issues/37)
