@@ -230,6 +230,19 @@
 	-->
 	<callback_timeout> 300.0 </callback_timeout>
 	
+	<!-- KBEngine.urlopen默认超时设置
+		(KBEngine.urlopen default timeout settings)
+		timeout: 整个请求最大耗时，0表示不限制（秒）
+		connectTimeout: 建立连接最大耗时，0表示使用libcurl默认行为（秒）
+		lowSpeedTime/lowSpeedLimit: 持续lowSpeedTime秒低于lowSpeedLimit bytes/s则中止
+	-->
+	<urlopen>
+		<timeout> 10 </timeout>
+		<connectTimeout> 10 </connectTimeout>
+		<lowSpeedTime> 5 </lowSpeedTime>
+		<lowSpeedLimit> 30 </lowSpeedLimit>
+	</urlopen>
+	
 	<thread_pool>
 		<!-- 默认超时时间(秒) 
 			(default timeout(seconds))

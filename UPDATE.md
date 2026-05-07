@@ -26,6 +26,9 @@
 - [perf] 优化掉所有的Warning [Issue #133](https://github.com/KBEngineLab/KBEngine-Nex/issues/133)
 - [perf] c++ sdk 移除libhv依赖
 - [perf] python async调度迁移到c++底层 [Issue #137](https://github.com/KBEngineLab/KBEngine-Nex/issues/137)
+- [perf] 优化kcp 客户端断开连接后的重试ERROR日志，变更为WARNING并更友好的提示
+- [perf] 优化kcp断连后的ERROR，ikcp_send外部客户端发送窗口满不再每次 ERROR_MSG（内部通道保留）
+- [perf] KBEngine.urlopen 超时配置 ，支持timeout、connectTimeout、lowSpeedTime/lowSpeedLimit [Issue #128](https://github.com/KBEngineLab/KBEngine-Nex/issues/128)
 
 ## 2.7.4
 - [feat] NavMesh Generator 添加了一个坐标配置管理器

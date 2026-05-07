@@ -5,6 +5,7 @@
 #include "curl/curl.h"
 #include "helper/debug_helper.h"
 #include "common/memorystream.h"
+#include "network/common.h"
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
 #include <limits>
@@ -18,6 +19,7 @@ namespace Http
 
 static bool _g_init = false;
 static Requests* g_pRequests = NULL;
+static const int64 HTTP_MULTI_POLL_INTERVAL = 10000;
 
 //-------------------------------------------------------------------------------------
 bool initialize()
@@ -80,15 +82,14 @@ Request::Request():
 	curl_easy_setopt((CURL*)pContext_, CURLOPT_NOPROGRESS, 1);
 	curl_easy_setopt((CURL*)pContext_, CURLOPT_NOSIGNAL, 1);
 
-	curl_easy_setopt((CURL*)pContext_, CURLOPT_CONNECTTIMEOUT_MS, 10000);
-	setTimeout(10);
+	curl_easy_setopt((CURL*)pContext_, CURLOPT_CONNECTTIMEOUT_MS, long(Network::g_urlopenConnectTimeout) * 1000L);
+	setTimeout(Network::g_urlopenTimeout);
 
 	KBE_ASSERT(sizeof(error_) >= CURL_ERROR_SIZE);
 	curl_easy_setopt((CURL*)pContext_, CURLOPT_ERRORBUFFER, error_);
 
-	/* abort if slower than 30 bytes/sec during 5 seconds */
-	curl_easy_setopt((CURL*)pContext_, CURLOPT_LOW_SPEED_TIME, 5L);
-	curl_easy_setopt((CURL*)pContext_, CURLOPT_LOW_SPEED_LIMIT, 30L);
+	curl_easy_setopt((CURL*)pContext_, CURLOPT_LOW_SPEED_TIME, long(Network::g_urlopenLowSpeedTime));
+	curl_easy_setopt((CURL*)pContext_, CURLOPT_LOW_SPEED_LIMIT, long(Network::g_urlopenLowSpeedLimit));
 }
 
 //-------------------------------------------------------------------------------------
@@ -558,7 +559,7 @@ static void mcode_or_die(const char *where, CURLMcode code)
 {
 	if (CURLM_OK != code) 
 	{
-		const char *s;
+		const char *s = curl_multi_strerror(code);
 		switch (code) {
 			__case(CURLM_BAD_HANDLE); break;
 			__case(CURLM_BAD_EASY_HANDLE); break;
@@ -566,14 +567,27 @@ static void mcode_or_die(const char *where, CURLMcode code)
 			__case(CURLM_INTERNAL_ERROR); break;
 			__case(CURLM_UNKNOWN_OPTION); break;
 			__case(CURLM_LAST); break;
-		default: s = "CURLM_unknown"; break;
+#ifdef CURLM_RECURSIVE_API_CALL
+			__case(CURLM_RECURSIVE_API_CALL); break;
+#endif
+#ifdef CURLM_WAKEUP_FAILURE
+			__case(CURLM_WAKEUP_FAILURE); break;
+#endif
+#ifdef CURLM_BAD_FUNCTION_ARGUMENT
+			__case(CURLM_BAD_FUNCTION_ARGUMENT); break;
+#endif
+#ifdef CURLM_ABORTED_BY_CALLBACK
+			__case(CURLM_ABORTED_BY_CALLBACK); break;
+#endif
 			__case(CURLM_BAD_SOCKET);
-			ERROR_MSG(fmt::format("curl-multi: {} returns {}.\n", where, s));
+			ERROR_MSG(fmt::format("curl-multi: {} returns {}({}).\n", where, s, static_cast<int>(code)));
 			/* ignore this error */
 			return;
+		default:
+			break;
 		}
 
-		ERROR_MSG(fmt::format("curl-multi: {} returns {}!\n", where, s));
+		ERROR_MSG(fmt::format("curl-multi: {} returns {}({})!\n", where, s, static_cast<int>(code)));
 	}
 }
 
@@ -769,30 +783,15 @@ static int multi_sock_cb(CURL* e, curl_socket_t s, int what, void* cbp, void* so
 
 static int multi_timer_cb(CURLM* multi, long timeout_ms, Requests *g)
 {
-	CURLMcode rc;
-
-	/* TODO
-	*
-	* if timeout_ms is 0, call curl_multi_socket_action() at once!
-	*
-	* if timeout_ms is -1, just delete the timer
-	*
-	* for all other values of timeout_ms, this should set or *update*
-	* the timer to the new value
-	*/
-
 	EventDispatcher &dispatcher = DebugHelper::getSingleton().pNetworkInterface()->dispatcher();
 	
 	g->timerHandle.cancel();
 
-	if (timeout_ms == 0) 
+	if (timeout_ms >= 0)
 	{
-		rc = curl_multi_socket_action((CURLM*)g->pContext(), CURL_SOCKET_TIMEOUT, 0, &g->still_running);
-		mcode_or_die("multi_timer_cb: curl_multi_socket_action", rc);
-	}
-	else if (timeout_ms > 0)
-	{
-		g->timerHandle = dispatcher.addTimer(timeout_ms * 1000, g);
+		// libcurl may ask for an immediate timeout from inside its own callback.
+		// Dispatch it through KBE's timer system to avoid recursive multi calls.
+		g->timerHandle = dispatcher.addTimer(KBE_MAX(1L, timeout_ms * 1000), g);
 	}
 
 	return 0;
@@ -807,10 +806,12 @@ Requests::Requests() :
 {
 	pContext_ = (void*)curl_multi_init();
 
+#if KBE_PLATFORM != PLATFORM_WIN32
 	curl_multi_setopt((CURLM*)pContext_, CURLMOPT_SOCKETFUNCTION, multi_sock_cb);
 	curl_multi_setopt((CURLM*)pContext_, CURLMOPT_SOCKETDATA, this);
 	curl_multi_setopt((CURLM*)pContext_, CURLMOPT_TIMERFUNCTION, multi_timer_cb);
 	curl_multi_setopt((CURLM*)pContext_, CURLMOPT_TIMERDATA, this);
+#endif
 }
 
 //-------------------------------------------------------------------------------------
@@ -834,6 +835,18 @@ Request::Status Requests::perform(Request* pRequest)
 		delete pRequest;
 		return Request::INVALID_OPT;
 	}
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+	rc = curl_multi_perform((CURLM*)pContext_, &still_running);
+	mcode_or_die("Requests::perform: curl_multi_perform", rc);
+	check_multi_info(this);
+
+	if (still_running > 0 && !timerHandle.isSet())
+	{
+		EventDispatcher& dispatcher = DebugHelper::getSingleton().pNetworkInterface()->dispatcher();
+		timerHandle = dispatcher.addTimer(HTTP_MULTI_POLL_INTERVAL, this);
+	}
+#endif
 
 	return Request::OK;
 }
@@ -881,9 +894,21 @@ void Requests::handleTimeout(TimerHandle, void * pUser)
 
 	CURLMcode rc;
 
+#if KBE_PLATFORM == PLATFORM_WIN32
+	rc = curl_multi_perform((CURLM*)pContext_, &still_running);
+	mcode_or_die("Requests::handleTimeout: curl_multi_perform", rc);
+	check_multi_info(this);
+
+	if (still_running > 0)
+	{
+		EventDispatcher& dispatcher = DebugHelper::getSingleton().pNetworkInterface()->dispatcher();
+		timerHandle = dispatcher.addTimer(HTTP_MULTI_POLL_INTERVAL, this);
+	}
+#else
 	rc = curl_multi_socket_action((CURLM*)pContext_, CURL_SOCKET_TIMEOUT, 0, &still_running);
 	mcode_or_die("Requests::handleTimeout: curl_multi_socket_action", rc);
 	check_multi_info(this);
+#endif
 
 	//DEBUG_MSG(fmt::format(" Requests::handleTimeout: still_running={}!\n", still_running));
 }

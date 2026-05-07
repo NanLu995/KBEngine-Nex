@@ -65,6 +65,12 @@ extern bool g_rudp_nodelay;
 extern std::string g_sslCertificate;
 extern std::string g_sslPrivateKey;
 
+// KBEngine.urlopen default timeout settings.
+extern uint32 g_urlopenTimeout;
+extern uint32 g_urlopenConnectTimeout;
+extern uint32 g_urlopenLowSpeedTime;
+extern uint32 g_urlopenLowSpeedLimit;
+
 // 不做通道超时检查
 #define CLOSE_CHANNEL_INACTIVITIY_DETECTION()										\
 {																					\

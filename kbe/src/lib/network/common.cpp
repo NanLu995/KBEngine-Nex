@@ -73,6 +73,12 @@ uint32						g_extReSendRetries = 3;
 std::string					g_sslCertificate = "";
 std::string					g_sslPrivateKey = "";
 
+// KBEngine.urlopen default timeout settings.
+uint32						g_urlopenTimeout = 10;
+uint32						g_urlopenConnectTimeout = 10;
+uint32						g_urlopenLowSpeedTime = 5;
+uint32						g_urlopenLowSpeedLimit = 30;
+
 bool initializeWatcher()
 {
 	WATCH_OBJECT("network/numPacketsSent", g_numPacketsSent);

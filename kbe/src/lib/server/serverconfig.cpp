@@ -158,6 +158,26 @@ bool ServerConfig::loadConfig(std::string fileName)
 		if(callback_timeout_ < 5.f)
 			callback_timeout_ = 5.f;
 	}
+
+	rootNode = xml->getRootNode("urlopen");
+	if(rootNode != NULL)
+	{
+		TiXmlNode* childnode = xml->enterNode(rootNode, "timeout");
+		if(childnode)
+			Network::g_urlopenTimeout = KBE_MAX(0, xml->getValInt(childnode));
+
+		childnode = xml->enterNode(rootNode, "connectTimeout");
+		if(childnode)
+			Network::g_urlopenConnectTimeout = KBE_MAX(0, xml->getValInt(childnode));
+
+		childnode = xml->enterNode(rootNode, "lowSpeedTime");
+		if(childnode)
+			Network::g_urlopenLowSpeedTime = KBE_MAX(0, xml->getValInt(childnode));
+
+		childnode = xml->enterNode(rootNode, "lowSpeedLimit");
+		if(childnode)
+			Network::g_urlopenLowSpeedLimit = KBE_MAX(0, xml->getValInt(childnode));
+	}
 	
 	rootNode = xml->getRootNode("thread_pool");
 	if(rootNode != NULL)
