@@ -7,6 +7,7 @@
 - [fix] 修复C++ SDK ObjectPool的一处BUG
 - [fix] 修复C++ SDK tcp下时序错乱的BUG
 - [fix] 修复 MySQL 写入和删除实体时，收集子表 DBID 使用父表名查找的问题，避免多子表场景下子表记录同步异常。
+- [fix] 修复 KBEngine.MemoryStream 销毁时没有减少 PyGC tracing 计数导致泄露的BUG。 [Issue #131](https://github.com/KBEngineLab/KBEngine-Nex/issues/131)
 - [feat] raycast完善，优化导航射线检测，支持斜、垂直射线（未来考虑拆分成可走区域探测和空间射线两个方法） [Issue #79](https://github.com/KBEngineLab/KBEngine-Nex/issues/79)
 - [feat] 新增 completionBudget 配置，限制每 tick 处理的完成事件数量和耗时，避免网络完成事件过多占满主循环。（目录仅win iocp）
 - [feat] rider支持，目前仅支持windows [Issue #135](https://github.com/KBEngineLab/KBEngine-Nex/issues/135)
