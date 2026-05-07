@@ -130,8 +130,8 @@ NavMeshHandle::~NavMeshHandle()
 	std::map<int, NavmeshLayer>::iterator iter = navmeshLayer.begin();
 	for(; iter != navmeshLayer.end(); ++iter)
 	{
-		dtFreeNavMesh(iter->second.pNavmesh);
 		dtFreeNavMeshQuery(iter->second.pNavmeshQuery);
+		dtFreeNavMesh(iter->second.pNavmesh);
 	}
 	
 	DEBUG_MSG(fmt::format("NavMeshHandle::~NavMeshHandle(): ({}) is destroyed!\n", resPath));
@@ -742,9 +742,23 @@ bool NavMeshHandle::_create(int layer, const std::string& resPath, const std::st
 	fclose(fp);
 	SAFE_RELEASE_ARRAY(data);
 
-	dtNavMeshQuery* pMavmeshQuery = new dtNavMeshQuery();
+	dtNavMeshQuery* pMavmeshQuery = dtAllocNavMeshQuery();
+	if (!pMavmeshQuery)
+	{
+		ERROR_MSG("NavMeshHandle::create: dtAllocNavMeshQuery is failed!\n");
+		dtFreeNavMesh(mesh);
+		return false;
+	}
 
-	pMavmeshQuery->init(mesh, 1024);
+	dtStatus status = pMavmeshQuery->init(mesh, 1024);
+	if (dtStatusFailed(status))
+	{
+		ERROR_MSG(fmt::format("NavMeshHandle::create: navmesh query init error({})!\n", status));
+		dtFreeNavMeshQuery(pMavmeshQuery);
+		dtFreeNavMesh(mesh);
+		return false;
+	}
+
 	pNavMeshHandle->resPath = resPath;
 	pNavMeshHandle->navmeshLayer[layer].pNavmeshQuery = pMavmeshQuery;
 	pNavMeshHandle->navmeshLayer[layer].pNavmesh = mesh;
