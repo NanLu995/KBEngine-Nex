@@ -68,6 +68,11 @@ static const float* getDetailTriVert(const dtMeshTile* tile, const dtPoly* poly,
 	return &tile->detailVerts[(detail->vertBase + idx - poly->vertCount) * 3];
 }
 
+static bool passDefaultQueryFilter(const dtQueryFilter& filter, const dtPoly* poly)
+{
+	return (poly->flags & filter.getIncludeFlags()) != 0 && (poly->flags & filter.getExcludeFlags()) == 0;
+}
+
 static bool raycastNavmeshGeometry(const dtNavMesh* navmesh, const float* s, const float* e, const dtQueryFilter& filter, float* hitPoint)
 {
 	float bestT = FLT_MAX;
@@ -82,8 +87,7 @@ static bool raycastNavmeshGeometry(const dtNavMesh* navmesh, const float* s, con
 		for (int j = 0; j < tile->header->polyCount; ++j)
 		{
 			const dtPoly* poly = &tile->polys[j];
-			const dtPolyRef polyRef = navmesh->getPolyRefBase(tile) | (dtPolyRef)j;
-			if (poly->getType() != DT_POLYTYPE_GROUND || !filter.passFilter(polyRef, tile, poly))
+			if (poly->getType() != DT_POLYTYPE_GROUND || !passDefaultQueryFilter(filter, poly))
 				continue;
 
 			const dtPolyDetail* detail = &tile->detailMeshes[j];
