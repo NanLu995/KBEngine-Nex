@@ -30,6 +30,7 @@
 - [perf] 优化kcp 客户端断开连接后的重试ERROR日志，变更为WARNING并更友好的提示
 - [perf] 优化kcp断连后的ERROR，ikcp_send外部客户端发送窗口满不再每次 ERROR_MSG（内部通道保留）
 - [perf] KBEngine.urlopen 超时配置 ，支持timeout、connectTimeout、lowSpeedTime/lowSpeedLimit [Issue #128](https://github.com/KBEngineLab/KBEngine-Nex/issues/128)
+- [perf] Docker镜像下线，由于KBE已经全平台支持，所以不再提供Docker镜像，请小伙伴们自行使用dockerfile [Issue #164](https://github.com/KBEngineLab/KBEngine-Nex/issues/164)
 
 ## 2.7.4
 - [feat] NavMesh Generator 添加了一个坐标配置管理器
