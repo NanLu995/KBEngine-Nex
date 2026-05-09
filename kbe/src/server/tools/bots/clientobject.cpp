@@ -103,6 +103,9 @@ void ClientObject::onNetworkError(const std::string& err)
 	DEBUG_MSG(fmt::format("ClientObject::onNetworkError: {} state={} err={}\n",
 		name_, static_cast<int>(state_), err));
 
+	deregisterReceiverEndPoint(pTCPPacketReceiverEx_, true);
+	deregisterReceiverEndPoint(pKCPPacketReceiverEx_, true);
+
 	if (pServerChannel_ != NULL && !pServerChannel_->isDestroyed())
 	{
 		pServerChannel_->destroy();
@@ -112,19 +115,23 @@ void ClientObject::onNetworkError(const std::string& err)
 	destroy();
 }
 
-void ClientObject::deregisterReceiverEndPoint(Network::PacketReceiver* pPacketReceiver)
+void ClientObject::deregisterReceiverEndPoint(Network::PacketReceiver* pPacketReceiver, bool detachEndPoint)
 {
 	if (pPacketReceiver == NULL || pPacketReceiver->pEndPoint() == NULL)
 	{
 		return;
 	}
 
-	if (!pPacketReceiver->pEndPoint()->good())
+	Network::EndPoint* pEndPoint = pPacketReceiver->pEndPoint();
+	if (pEndPoint->good())
 	{
-		return;
+		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pEndPoint);
 	}
 
-	Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pPacketReceiver->pEndPoint());
+	if (detachEndPoint)
+	{
+		pPacketReceiver->pEndPoint(NULL);
+	}
 }
 
 void ClientObject::clearStates(void)

@@ -52,7 +52,7 @@ public:
 	virtual void reset(void);
 
 	void clearStates(void);
-	void deregisterReceiverEndPoint(Network::PacketReceiver* pPacketReceiver);
+	void deregisterReceiverEndPoint(Network::PacketReceiver* pPacketReceiver, bool detachEndPoint = false);
 
 	bool initCreate();
 	bool initLoginBaseapp();
