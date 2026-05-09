@@ -390,9 +390,31 @@ bool NetworkInterface::registerChannel(Channel* pChannel)
 
 	if(pExisting)
 	{
-		CRITICAL_MSG(fmt::format("NetworkInterface::registerChannel: channel {} is exist.\n",
-		pChannel->c_str()));
-		return false;
+		const bool existingEndpointInvalid = pExisting->pEndPoint() == NULL || !pExisting->pEndPoint()->good();
+		const bool existingClosing = pExisting->isDestroyed() || pExisting->condemn() > 0 || existingEndpointInvalid;
+
+		if (!existingClosing)
+		{
+			CRITICAL_MSG(fmt::format("NetworkInterface::registerChannel: channel {} is exist.\n",
+			pChannel->c_str()));
+			return false;
+		}
+
+		WARNING_MSG(fmt::format("NetworkInterface::registerChannel: replace stale channel {}, reason={}, destroyed={}, endpointInvalid={}.\n",
+			pExisting->c_str(), pExisting->condemnReason(), pExisting->isDestroyed(), existingEndpointInvalid));
+
+		channelMap_.erase(iter);
+
+		if(pExisting->isExternal())
+			numExtChannels_--;
+
+		if(pChannelDeregisterHandler_)
+		{
+			pChannelDeregisterHandler_->onChannelDeregister(pExisting);
+		}
+
+		pExisting->destroy();
+		Network::Channel::reclaimPoolObject(pExisting);
 	}
 
 	channelMap_[addr] = pChannel;

@@ -100,6 +100,8 @@ public:
 	virtual void onLogin(Network::Bundle* pBundle);
 
 protected:
+	void sendBaseappActiveTick(bool force);
+
 	C_ERROR error_;
 	C_STATE state_;
 	Network::BlowfishFilter* pBlowfishFilter_;

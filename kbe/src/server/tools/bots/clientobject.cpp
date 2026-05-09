@@ -14,6 +14,8 @@
 #include "client_lib/client_interface.h"
 #include "common/kbeversion.h"
 
+#include <algorithm>
+
 #include "baseapp/baseapp_interface.h"
 #include "cellapp/cellapp_interface.h"
 #include "baseappmgr/baseappmgr_interface.h"
@@ -132,6 +134,33 @@ void ClientObject::deregisterReceiverEndPoint(Network::PacketReceiver* pPacketRe
 	{
 		pPacketReceiver->pEndPoint(NULL);
 	}
+}
+
+void ClientObject::sendBaseappActiveTick(bool force)
+{
+	if (!connectedBaseapp_ || pServerChannel_ == NULL || pServerChannel_->pEndPoint() == NULL ||
+		pServerChannel_->isDestroyed() || pServerChannel_->condemn() > 0)
+	{
+		return;
+	}
+
+	uint64 interval = stampsPerSecond() * 10;
+	if (Network::g_channelExternalTimeout > 0.f)
+	{
+		interval = KBE_MAX<uint64>(stampsPerSecond(), uint64(Network::g_channelExternalTimeout * stampsPerSecond()) / 4);
+		interval = KBE_MIN<uint64>(interval, stampsPerSecond() * 10);
+	}
+
+	if (!force && timestamp() - lastSentActiveTickTime_ < interval)
+	{
+		return;
+	}
+
+	lastSentActiveTickTime_ = timestamp();
+
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject(OBJECTPOOL_POINT);
+	(*pBundle).newMessage(BaseappInterface::onClientActiveTick);
+	pServerChannel_->send(pBundle);
 }
 
 void ClientObject::clearStates(void)
@@ -513,7 +542,7 @@ void ClientObject::gameTick()
 
 			break;
 		case C_STATE_PLAY:
-			break;	
+			break;
 		case C_STATE_DESTROYED:
 			return;
 		default:
@@ -521,6 +550,7 @@ void ClientObject::gameTick()
 			break;
 	};
 
+	sendBaseappActiveTick(false);
 	tickSend();
 }
 
@@ -541,6 +571,8 @@ void ClientObject::onHelloCB_(Network::Channel* pChannel, const std::string& ver
 	}
 	else
 	{
+		connectedBaseapp_ = true;
+		sendBaseappActiveTick(true);
 		state_ = C_STATE_LOGIN_BASEAPP;
 	}
 }
