@@ -2,6 +2,7 @@
 
 #include "pickler.h"
 #include "py_memorystream.h"
+#include <limits>
 #include "py_gc.h"
 
 #ifndef CODE_INLINE
@@ -87,6 +88,7 @@ readonly_(readonly)
 //-------------------------------------------------------------------------------------
 PyMemoryStream::~PyMemoryStream()
 {
+	script::PyGC::decTracing("MemoryStream");
 }
 
 //-------------------------------------------------------------------------------------
@@ -128,8 +130,8 @@ PyObject* PyMemoryStream::__py_reduce_ex__(PyObject* self, PyObject* protocol)
 	PyTuple_SET_ITEM(args, 0, unpickleMethod);
 	PyObject* args1 = PyTuple_New(3);
 
-	PyTuple_SET_ITEM(args1, 0, PyLong_FromUnsignedLong(pPyMemoryStream->stream().rpos()));
-	PyTuple_SET_ITEM(args1, 1, PyLong_FromUnsignedLong(pPyMemoryStream->stream().wpos()));
+	PyTuple_SET_ITEM(args1, 0, PyLong_FromSize_t(pPyMemoryStream->stream().rpos()));
+	PyTuple_SET_ITEM(args1, 1, PyLong_FromSize_t(pPyMemoryStream->stream().wpos()));
 	PyTuple_SET_ITEM(args1, 2, pPyMemoryStream->pyBytes());
 
 	PyTuple_SET_ITEM(args, 1, args1);
@@ -163,8 +165,12 @@ PyObject* PyMemoryStream::__unpickle__(PyObject* self, PyObject* args)
 	}
 
 	PyMemoryStream* pPyMemoryStream = new PyMemoryStream(pybytes);
-	pPyMemoryStream->stream().rpos(PyLong_AsUnsignedLong(pyRpos));
-	pPyMemoryStream->stream().wpos(PyLong_AsUnsignedLong(pyWpos));
+	size_t rpos = PyLong_AsSize_t(pyRpos);
+	size_t wpos = PyLong_AsSize_t(pyWpos);
+	KBE_ASSERT(rpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	KBE_ASSERT(wpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	pPyMemoryStream->stream().rpos(static_cast<int>(rpos));
+	pPyMemoryStream->stream().wpos(static_cast<int>(wpos));
 	return pPyMemoryStream;
 }
 
@@ -188,12 +194,12 @@ PyObject* PyMemoryStream::py_new()
 //-------------------------------------------------------------------------------------
 void PyMemoryStream::addToStream(MemoryStream* mstream)
 {
-	ArraySize size = stream().size();
+	ArraySize size = static_cast<ArraySize>(stream().size());
 
 	(*mstream) << size;
 	if(size > 0)
 	{
-		ArraySize rpos = stream().rpos(), wpos = stream().wpos();
+		ArraySize rpos = static_cast<ArraySize>(stream().rpos()), wpos = static_cast<ArraySize>(stream().wpos());
 		(*mstream) << rpos;
 		(*mstream) << wpos;
 		(*mstream).append(stream().data(), size);
@@ -260,7 +266,7 @@ PyObject* PyMemoryStream::__py_append(PyObject* self, PyObject* args, PyObject* 
 		S_Return;
 	}
 
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 2)
 	{
 		PyErr_Format(PyExc_AssertionError, "PyMemoryStream::append: args error! arg1 is type[UINT8|STRING|...], arg2 is val.");
@@ -279,42 +285,42 @@ PyObject* PyMemoryStream::__py_append(PyObject* self, PyObject* args, PyObject* 
 
 	if(strcmp(type, "UINT8") == 0)
 	{
-		uint8 v = (uint8)PyLong_AsUnsignedLong(pyVal);
+		uint8 v = static_cast<uint8>(PyLong_AsUnsignedLong(pyVal));
 		pyobj->stream() << v;
 	}
 	else if(strcmp(type, "UINT16") == 0)
 	{
-		uint16 v = (uint16)PyLong_AsUnsignedLong(pyVal);
+		uint16 v = static_cast<uint16>(PyLong_AsUnsignedLong(pyVal));
 		pyobj->stream() << v;
 	}
 	else if(strcmp(type, "UINT32") == 0)
 	{
-		uint32 v = PyLong_AsUnsignedLong(pyVal);
+		uint32 v = static_cast<uint32>(PyLong_AsUnsignedLong(pyVal));
 		pyobj->stream() << v;
 	}
 	else if(strcmp(type, "UINT64") == 0)
 	{
-		uint64 v = PyLong_AsUnsignedLongLong(pyVal);
+		uint64 v = static_cast<uint64>(PyLong_AsUnsignedLongLong(pyVal));
 		pyobj->stream() << v;
 	}
 	else if(strcmp(type, "INT8") == 0)
 	{
-		int8 v = (int8)PyLong_AsLong(pyVal);
+		int8 v = static_cast<int8>(PyLong_AsLong(pyVal));
 		pyobj->stream() << v;
 	}
 	else if(strcmp(type, "INT16") == 0)
 	{
-		int16 v = (int16)PyLong_AsLong(pyVal);
+		int16 v = static_cast<int16>(PyLong_AsLong(pyVal));
 		pyobj->stream() << v;
 	}
 	else if(strcmp(type, "INT32") == 0)
 	{
-		int32 v = PyLong_AsLong(pyVal);
+		int32 v = static_cast<int32>(PyLong_AsLong(pyVal));
 		pyobj->stream() << v;
 	}
 	else if(strcmp(type, "INT64") == 0)
 	{
-		int64 v = PyLong_AsLongLong(pyVal);
+		int64 v = static_cast<int64>(PyLong_AsLongLong(pyVal));
 		pyobj->stream() << v;
 	}
 	else if(strcmp(type, "FLOAT") == 0)
@@ -343,7 +349,14 @@ PyObject* PyMemoryStream::__py_append(PyObject* self, PyObject* args, PyObject* 
 			S_Return;
 		}
 
-		pyobj->stream().appendBlob(s, size);
+		if (size < 0 || static_cast<uint64>(size) > static_cast<uint64>(std::numeric_limits<ArraySize>::max()))
+		{
+			PyErr_Format(PyExc_OverflowError, "PyMemoryStream::append: unicode is too large!");
+			PyErr_PrintEx(0);
+			S_Return;
+		}
+
+		pyobj->stream().appendBlob(s, static_cast<ArraySize>(size));
 	}
 	else if(strcmp(type, "PYTHON") == 0 || strcmp(type, "PY_DICT") == 0
 		 || strcmp(type, "PY_TUPLE") == 0  || strcmp(type, "PY_LIST") == 0)
@@ -371,7 +384,14 @@ PyObject* PyMemoryStream::__py_append(PyObject* self, PyObject* args, PyObject* 
 				S_Return;
 			}
 
-			pyobj->stream().appendBlob(buffer, length);
+			if (length < 0 || static_cast<uint64>(length) > static_cast<uint64>(std::numeric_limits<ArraySize>::max()))
+			{
+				PyErr_Format(PyExc_OverflowError, "PyMemoryStream::append: blob is too large!");
+				PyErr_PrintEx(0);
+				S_Return;
+			}
+
+			pyobj->stream().appendBlob(buffer, static_cast<ArraySize>(length));
 		}
 		else
 		{
@@ -401,7 +421,7 @@ PyObject* PyMemoryStream::__py_pop(PyObject* self, PyObject* args, PyObject* kwa
 		S_Return;
 	}
 
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_AssertionError, "PyMemoryStream::pop: args error! arg1 is type[UINT8|STRING|...].");
@@ -422,13 +442,13 @@ PyObject* PyMemoryStream::__py_pop(PyObject* self, PyObject* args, PyObject* kwa
 		{
 			uint8 v;
 			pyobj->stream() >> v;
-			return PyLong_FromUnsignedLong(v);
+			return PyLong_FromLong(v);
 		}
 		else if(strcmp(type, "UINT16") == 0)
 		{
 			uint16 v;
 			pyobj->stream() >> v;
-			return PyLong_FromUnsignedLong(v);
+			return PyLong_FromLong(v);
 		}
 		else if(strcmp(type, "UINT32") == 0)
 		{
@@ -531,7 +551,7 @@ PyObject* PyMemoryStream::__py_pop(PyObject* self, PyObject* args, PyObject* kwa
 			S_Return;
 		}
 	}
-	catch(MemoryStreamException &e)
+	catch(MemoryStreamException &)
 	{
 		PyErr_Format(PyExc_Exception, "PyMemoryStream::pop: stream error!");
 		PyErr_PrintEx(0);
@@ -546,7 +566,7 @@ PyObject* PyMemoryStream::__py_rpos(PyObject* self, PyObject* args, PyObject* kw
 {
 	PyMemoryStream* pyobj = static_cast<PyMemoryStream*>(self);
 
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if (argCount > 1)
 	{
 		PyErr_Format(PyExc_AssertionError, "PyMemoryStream::rpos: args error! arg1 is type[UINT32].");
@@ -566,7 +586,7 @@ PyObject* PyMemoryStream::__py_rpos(PyObject* self, PyObject* args, PyObject* kw
 	}
 	else
 	{
-		return PyLong_FromUnsignedLong(pyobj->stream().rpos());
+		return PyLong_FromSize_t(pyobj->stream().rpos());
 	}
 
 	S_Return;
@@ -577,7 +597,7 @@ PyObject* PyMemoryStream::__py_wpos(PyObject* self, PyObject* args, PyObject* kw
 {
 	PyMemoryStream* pyobj = static_cast<PyMemoryStream*>(self);
 
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if (argCount > 1)
 	{
 		PyErr_Format(PyExc_AssertionError, "PyMemoryStream::wpos: args error! arg1 is type[UINT32].");
@@ -605,7 +625,7 @@ PyObject* PyMemoryStream::__py_wpos(PyObject* self, PyObject* args, PyObject* kw
 	}
 	else
 	{
-		return PyLong_FromUnsignedLong(pyobj->stream().wpos());
+		return PyLong_FromSize_t(pyobj->stream().wpos());
 	}
 
 	S_Return;
@@ -623,7 +643,7 @@ PyObject* PyMemoryStream::__py_fill(PyObject* self, PyObject* args, PyObject* kw
 		S_Return;
 	}
 
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if (argCount != 1)
 	{
 		PyErr_Format(PyExc_AssertionError, "PyMemoryStream::fill: args error! arg1 is [bytes|PyMemoryStream].");

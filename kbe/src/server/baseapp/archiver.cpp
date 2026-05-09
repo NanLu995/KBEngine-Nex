@@ -3,6 +3,7 @@
 #include "baseapp.h"
 #include "archiver.h"
 #include "entity.h"
+#include <random>
 
 namespace KBEngine{	
 
@@ -34,7 +35,7 @@ void Archiver::tick()
 	// baseEntity的数量 * idx / tick周期 = 每次在vector中移动的一个区段
 	// 这个区段在每个gametick进行处理, 刚好平滑的在periodInTicks中处理完任务
 	// 如果archiveIndex_ >= periodInTicks则重新产生一次随机序列
-	int size = (int)arEntityIDs_.size();
+	int size = static_cast<int>(arEntityIDs_.size());
 	int startIndex = size * archiveIndex_ / periodInTicks;
 
 	++archiveIndex_;
@@ -80,7 +81,8 @@ void Archiver::createArchiveTable()
 	}
 
 	// 随机一下序列
-	std::random_shuffle(arEntityIDs_.begin(), arEntityIDs_.end());
+	static thread_local std::mt19937 rng(std::random_device{}());
+	std::shuffle(arEntityIDs_.begin(), arEntityIDs_.end(), rng);
 }
 
 }

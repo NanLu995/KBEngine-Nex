@@ -10,7 +10,7 @@ namespace KBEngine {
 // 指示是否可以通过调用RDTSC（时间戳计数器）
 // 计算时间戳。使用此的好处是，它能快速和精确的返回实际的时钟滴答
 // 。不足之处是，这并不使用SpeedStep技术来改变他们的时钟速度的CPU。
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 	//#define KBE_USE_RDTSC
 #else // unix
 	//#define KBE_USE_RDTSC
@@ -28,7 +28,7 @@ namespace KBEngine {
 
 	const char* getTimingMethodName();
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 
 	// 支持ARM 
 	inline uint64_t timestamp_rdtsc()
@@ -68,12 +68,11 @@ namespace KBEngine {
 	}
 
 #include <time.h>
-#include <asm/unistd.h>
 
 	inline uint64 timestamp_gettime()
 	{
 		timespec tv;
-		assert(syscall(__NR_clock_gettime, CLOCK_MONOTONIC, &tv) == 0);
+		assert(clock_gettime(CLOCK_MONOTONIC, &tv) == 0);
 		return 1000000000ULL * tv.tv_sec + tv.tv_nsec;
 	}
 

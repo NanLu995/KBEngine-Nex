@@ -6,16 +6,13 @@
 
 一款开源的游戏服务端引擎，客户端通过简单的约定协议就能与服务端通讯
 
-使用KBEngine插件能够快速与(Unity3D, UE, Cocos等等)技术结合形成一个完整的客户端
+使用KBEngine插件能够快速与(Unity, UE, Cocos, Godot等等)技术结合形成一个完整的客户端
 
-<a href="https://www.kbelab.com/">🎨 官网</a> · <a href="https://api.kbelab.com/">🍀
-文档</a> · <a href="https://github.com/KBEngineLab/KBEngine-Nex/issues">
-报告问题</a> · <a href="https://github.com/KBEngineLab/KBEngine-Nex/discussions/categories/ideas">
-建议反馈</a> · <a href="UPDATE.md">更新日志</a> · <a href="https://github.com/kbengine/kbengine">KBEngine</a>
+<a href="https://www.kbelab.com/">🎨 官网</a> · <a href="https://api.kbelab.com/">🍀 文档</a> · <a href="https://ima.qq.com/wiki/?shareId=0d653e88662ae03968d89e1d370f40b2fbd1d212ed23ffccb5ce8ec768045eef">AI 知识库</a> · <a href="https://github.com/KBEngineLab/KBEngine-Nex/issues">报告问题</a> · <a href="https://github.com/KBEngineLab/KBEngine-Nex/discussions/categories/ideas">建议反馈</a> · <a href="UPDATE.md">更新日志</a> · <a href="https://github.com/kbengine/kbengine">KBEngine</a>
 
 [![][qq1-shield]][qq1-link]
 
-[![][build-status-shield]][build-status-link] [![][release-shield]][release-link] [![][dockerhub-shield]][dockerhub-link] [![][last-commit-shield]][last-commit-shield-link] [![][github-issues-shield]][github-issues-shield-link] [![][github-stars-shield]][github-stars-link] [![JetBrains Plugins](https://img.shields.io/jetbrains/plugin/v/27963-kbenginex.svg)](https://plugins.jetbrains.com/plugin/27963-kbenginex)
+[![][build-status-shield]][build-status-link] [![][release-shield]][release-link] [![][last-commit-shield]][last-commit-shield-link] [![][github-issues-shield]][github-issues-shield-link] [![][github-stars-shield]][github-stars-link] [![JetBrains Plugins](https://img.shields.io/jetbrains/plugin/v/27963-kbenginex.svg)](https://plugins.jetbrains.com/plugin/27963-kbenginex)
 
 </div>
 

@@ -15,6 +15,7 @@ namespace Network
 {
 	
 class InputNotificationHandler;
+class IocpPoller;
 typedef std::map<int, InputNotificationHandler *> FDReadHandlers;
 typedef std::map<int, OutputNotificationHandler *> FDWriteHandlers;
 
@@ -56,6 +57,8 @@ protected:
 	bool isRegistered(int fd, bool isForRead) const;
 
 	int maxFD() const;
+	const FDReadHandlers& fdReadHandlers() const { return fdReadHandlers_; }
+	const FDWriteHandlers& fdWriteHandlers() const { return fdWriteHandlers_; }
 
 private:
 	FDReadHandlers fdReadHandlers_;

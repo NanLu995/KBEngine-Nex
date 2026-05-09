@@ -13,6 +13,7 @@
 #include "network/tcp_packet_receiver.h"
 #include "network/tcp_packet_sender.h"
 #include "network/udp_packet_receiver.h"
+#include <cstring>
 
 #if KBE_PLATFORM == PLATFORM_WIN32
 #include <Iphlpapi.h>
@@ -21,12 +22,13 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <arpa/inet.h>
+#include <ifaddrs.h>
 #endif
 
 namespace KBEngine { 
 namespace Network
 {
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 #else	// not unix
 	// Need to implement if_nameindex functions on Windows
 	/** @internal */
@@ -54,6 +56,40 @@ namespace Network
 #endif	// not unix
 
 static bool g_networkInitted = false;
+
+#if KBE_PLATFORM_UNIX_FAMILY
+static bool isVirtualLikeInterfaceName(const char* ifname)
+{
+	if (ifname == nullptr)
+		return false;
+
+	static const char* kPrefixes[] = {
+		"utun", "vmnet", "vboxnet", "bridge", "awdl", "llw", "anpi"
+	};
+
+	for (const char* prefix : kPrefixes)
+	{
+		if (std::strncmp(ifname, prefix, std::strlen(prefix)) == 0)
+			return true;
+	}
+
+	return false;
+}
+
+static int scoreInterface(unsigned int flags, const char* ifname)
+{
+	int score = 0;
+
+	if (flags & IFF_UP) score += 8;
+	if (flags & IFF_RUNNING) score += 4;
+	if (flags & IFF_BROADCAST) score += 4;
+	if (flags & IFF_LOOPBACK) score -= 8;
+	if (flags & IFF_POINTOPOINT) score -= 6;
+	if (isVirtualLikeInterfaceName(ifname)) score -= 5;
+
+	return score;
+}
+#endif
 
 //-------------------------------------------------------------------------------------
 static ObjectPool<EndPoint> _g_objPool("EndPoint");
@@ -100,7 +136,7 @@ bool EndPoint::getClosedPort(Network::Address & closedPort)
 {
 	bool isResultSet = false;
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if defined(__linux__)
 //	KBE_ASSERT(errno == ECONNREFUSED);
 
 	struct sockaddr_in	offender;
@@ -168,7 +204,7 @@ bool EndPoint::getClosedPort(Network::Address & closedPort)
 
 		isResultSet = true;
 	}
-#endif // unix
+#endif // __linux__
 
 	return isResultSet;
 }
@@ -220,7 +256,34 @@ bool EndPoint::getInterfaces(std::map< u_int32_t, std::string > &interfaces)
 	}
 
 	return count > 0;
-#else
+#elif KBE_PLATFORM_UNIX_FAMILY
+	struct ifaddrs* ifaddr = nullptr;
+	if (getifaddrs(&ifaddr) != 0 || ifaddr == nullptr)
+	{
+		ERROR_MSG(fmt::format("EndPoint::getInterfaces: getifaddrs failed: {}\n", kbe_strerror()));
+		return false;
+	}
+
+	for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next)
+	{
+		if (ifa->ifa_name == nullptr || ifa->ifa_addr == nullptr)
+			continue;
+
+		if (ifa->ifa_addr->sa_family != AF_INET)
+			continue;
+
+		unsigned int flags = ifa->ifa_flags;
+		if (!(flags & IFF_UP) || (flags & IFF_LOOPBACK))
+			continue;
+
+		u_int32_t ip = ((struct sockaddr_in*)ifa->ifa_addr)->sin_addr.s_addr;
+		interfaces[ip] = ifa->ifa_name;
+	}
+
+	freeifaddrs(ifaddr);
+	return !interfaces.empty();
+
+#elif defined(__linux__)
 	struct ifconf ifc;
 	char          buf[1024];
 
@@ -245,6 +308,8 @@ bool EndPoint::getInterfaces(std::map< u_int32_t, std::string > &interfaces)
 
 	return true;
 #endif
+
+	return false;
 }
 
 //-------------------------------------------------------------------------------------
@@ -314,8 +379,8 @@ int EndPoint::getInterfaceAddressByName(const char * name, u_int32_t & address)
         delete pIpAdapterInfo;
     }
 
-#else
-	
+#elif KBE_PLATFORM_UNIX_FAMILY
+		
 	int fd;
 	int interfaceNum = 0;
 	struct ifreq buf[16];
@@ -348,6 +413,9 @@ int EndPoint::getInterfaceAddressByName(const char * name, u_int32_t & address)
 	}
 
 	::close(fd);
+
+#else
+	ret = -1;
 
 #endif
 
@@ -420,7 +488,7 @@ int EndPoint::getInterfaceAddressByMAC(const char * mac, u_int32_t & address)
 		delete pIpAdapterInfo;
 	}
 
-#else
+#elif defined(__linux__)
 
 	int fd;
 	int interfaceNum = 0;
@@ -462,6 +530,9 @@ int EndPoint::getInterfaceAddressByMAC(const char * mac, u_int32_t & address)
 
 	::close(fd);
 
+#else
+	ret = -1;
+
 #endif
 
 	return ret;
@@ -470,11 +541,48 @@ int EndPoint::getInterfaceAddressByMAC(const char * mac, u_int32_t & address)
 //-------------------------------------------------------------------------------------
 int EndPoint::findDefaultInterface(char * name, int buffsize)
 {
-#if KBE_PLATFORM != PLATFORM_UNIX
+#if !KBE_PLATFORM_UNIX_FAMILY
 	strcpy(name, "eth0");
 	return 0;
 #else
 	int		ret = -1;
+
+	// Prefer getifaddrs on Unix-family systems (macOS/Linux) and select
+	// the most suitable IPv4 interface for LAN broadcast traffic.
+	struct ifaddrs* ifaddr = nullptr;
+	if (getifaddrs(&ifaddr) == 0 && ifaddr != nullptr)
+	{
+		int bestScore = -99999;
+		std::string bestName;
+
+		for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next)
+		{
+			if (ifa->ifa_name == nullptr || ifa->ifa_addr == nullptr)
+				continue;
+
+			if (ifa->ifa_addr->sa_family != AF_INET)
+				continue;
+
+			unsigned int flags = ifa->ifa_flags;
+			if (!(flags & IFF_UP))
+				continue;
+
+			int score = scoreInterface(flags, ifa->ifa_name);
+			if (score > bestScore)
+			{
+				bestScore = score;
+				bestName = ifa->ifa_name;
+			}
+		}
+
+		freeifaddrs(ifaddr);
+
+		if (!bestName.empty())
+		{
+			kbe_snprintf(name, buffsize, "%s", bestName.c_str());
+			return 0;
+		}
+	}
 
 	struct if_nameindex* pIfInfo = if_nameindex();
 	if (pIfInfo)
@@ -491,7 +599,7 @@ int EndPoint::findDefaultInterface(char * name, int buffsize)
 				u_int32_t	addr;
 				if (this->getInterfaceAddress(pIfInfoCur->if_name, addr) == 0)
 				{
-					strncpy(name, pIfInfoCur->if_name, MAX_BUF);
+					kbe_snprintf(name, buffsize, "%s", pIfInfoCur->if_name);
 					ret = 0;
 
 					// we only stop if it's not a loopback address,
@@ -517,31 +625,56 @@ int EndPoint::findDefaultInterface(char * name, int buffsize)
 //-------------------------------------------------------------------------------------
 int EndPoint::getDefaultInterfaceAddress(u_int32_t & address)
 {
-	int ret = -1;
+	address = 0;
 
-	char interfaceName[MAX_BUF] = {0};
-	ret = findDefaultInterface(interfaceName, MAX_BUF);
-	if(0 == ret)
+#if KBE_PLATFORM_UNIX_FAMILY
+	// Prefer the best IPv4 interface for broadcast/local traffic.
+	struct ifaddrs* ifaddr = nullptr;
+	if (getifaddrs(&ifaddr) == 0 && ifaddr != nullptr)
 	{
-		ret = getInterfaceAddressByName(interfaceName, address);
-	}
+		int bestScore = -99999;
+		u_int32_t bestAddress = 0;
 
-	if(0 != ret)
-	{
-		char hostname[256] = {0};
-		::gethostname(hostname, sizeof(hostname));
-		struct hostent * host = gethostbyname(hostname);
-		if(host)
+		for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next)
 		{
-			if(host->h_addr_list[0] < host->h_name)
+			if (ifa->ifa_addr == nullptr || ifa->ifa_name == nullptr)
+				continue;
+
+			if (ifa->ifa_addr->sa_family != AF_INET)
+				continue;
+
+			unsigned int flags = ifa->ifa_flags;
+			if (!(flags & IFF_UP))
+				continue;
+
+			u_int32_t ip = ((struct sockaddr_in*)ifa->ifa_addr)->sin_addr.s_addr;
+			int score = scoreInterface(flags, ifa->ifa_name);
+			if (score > bestScore)
 			{
-				address = ((struct in_addr*)(host->h_addr_list[0]))->s_addr;
-				ret = 0;
+				bestScore = score;
+				bestAddress = ip;
 			}
 		}
+
+		freeifaddrs(ifaddr);
+		if (bestAddress != 0)
+		{
+			address = bestAddress;
+			return 0;
+		}
+	}
+#endif
+
+	char hostname[256] = {0};
+	::gethostname(hostname, sizeof(hostname));
+	struct hostent* host = gethostbyname(hostname);
+	if (host && host->h_addr_list && host->h_addr_list[0])
+	{
+		address = ((struct in_addr*)(host->h_addr_list[0]))->s_addr;
+		return 0;
 	}
 
-	return ret;
+	return -1;
 }
 
 //-------------------------------------------------------------------------------------
@@ -630,21 +763,35 @@ bool EndPoint::waitSend()
 	FD_ZERO( &fds );
 	FD_SET(socket_, &fds);
 
-	return select(socket_+1, NULL, &fds, NULL, &tv) > 0;
+	return select(static_cast<int>(socket_ + 1), NULL, &fds, NULL, &tv) > 0;
 }
 
 //-------------------------------------------------------------------------------------
 void EndPoint::send(Bundle * pBundle)
 {
+#if KBE_PLATFORM == PLATFORM_WIN32
+#pragma warning(push)
+#pragma warning(disable:4267)
+#endif
 	//AUTO_SCOPED_PROFILE("sendBundle");
 	SEND_BUNDLE((*this), (*pBundle));
+#if KBE_PLATFORM == PLATFORM_WIN32
+#pragma warning(pop)
+#endif
 }
 
 //-------------------------------------------------------------------------------------
 void EndPoint::sendto(Bundle * pBundle, u_int16_t networkPort, u_int32_t networkAddr)
 {
+#if KBE_PLATFORM == PLATFORM_WIN32
+#pragma warning(push)
+#pragma warning(disable:4267)
+#endif
 	//AUTO_SCOPED_PROFILE("sendBundle");
 	SENDTO_BUNDLE((*this), networkAddr, networkPort, (*pBundle));
+#if KBE_PLATFORM == PLATFORM_WIN32
+#pragma warning(pop)
+#endif
 }
 
 //-------------------------------------------------------------------------------------
@@ -757,7 +904,7 @@ bool EndPoint::setupSSL(int sslVersion, Packet* pPacket)
 		return false;
 	}
 
-	SSL_set_fd(sslHandle_, *this);
+	SSL_set_fd(sslHandle_, static_cast<int>(*this));
 
 	BIO_set_callback(SSL_get_rbio(sslHandle_), ssl_bio_callback);
 	BIO_set_callback_arg(SSL_get_rbio(sslHandle_), (char*)pPacket);
@@ -774,7 +921,7 @@ bool EndPoint::setupSSL(int sslVersion, Packet* pPacket)
 		{
 		case SSL_ERROR_WANT_READ:
 		{
-			int selgot = select((*this) + 1, &fds, NULL, NULL, &tv);
+			int selgot = select(static_cast<int>((*this) + 1), &fds, NULL, NULL, &tv);
 			if (selgot <= 0)
 			{
 				ERROR_MSG(fmt::format("EndPoint::setupSSL: SSL_accept(SSL_ERROR_WANT_READ): {}!\n", ERR_error_string(SSL_get_error(sslHandle_, -1), NULL)));
@@ -786,7 +933,7 @@ bool EndPoint::setupSSL(int sslVersion, Packet* pPacket)
 		}
 		case SSL_ERROR_WANT_WRITE:
 		{
-			int selgot = select((*this) + 1, NULL, &fds, NULL, &tv);
+			int selgot = select(static_cast<int>((*this) + 1), NULL, &fds, NULL, &tv);
 			if (selgot <= 0)
 			{
 				ERROR_MSG(fmt::format("EndPoint::setupSSL: SSL_accept(SSL_ERROR_WANT_WRITE): {}!\n", ERR_error_string(SSL_get_error(sslHandle_, -1), NULL)));

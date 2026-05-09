@@ -46,7 +46,7 @@ public:
 	void socket(int type);
 	INLINE KBESOCKET socket() const;
 	
-	INLINE void setFileDescriptor(int fd);
+	INLINE void setFileDescriptor(KBESOCKET fd);
 
 	INLINE int joinMulticastGroup(u_int32_t networkAddr);
 	INLINE int quitMulticastGroup(u_int32_t networkAddr);
@@ -56,6 +56,7 @@ public:
 	INLINE int setnonblocking(bool nonblocking);
 	INLINE int setbroadcast(bool broadcast);
 	INLINE int setreuseaddr(bool reuseaddr);
+	INLINE int setreuseport(bool reuseport);
 	INLINE int setkeepalive(bool keepalive);
 	INLINE int setnodelay(bool nodelay = true);
 	INLINE int setlinger(uint16 onoff, uint16 linger);

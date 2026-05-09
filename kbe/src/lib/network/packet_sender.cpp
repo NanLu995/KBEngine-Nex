@@ -88,13 +88,18 @@ Reason PacketSender::checkSocketErrors(const EndPoint * pEndpoint)
 	int err;
 	Reason reason;
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 		err = errno;
 
 		switch (err)
 		{
 			case ECONNREFUSED:	reason = REASON_NO_SUCH_PORT; break;
 			case EAGAIN:		reason = REASON_RESOURCE_UNAVAILABLE; break;
+#if defined(__APPLE__)
+			// On macOS, non-blocking TCP channels may transiently report ENOTCONN
+			// during startup races; treat it as retryable instead of fatal.
+			case ENOTCONN:		reason = REASON_RESOURCE_UNAVAILABLE; break;
+#endif
 			case EPIPE:			reason = REASON_CLIENT_DISCONNECTED; break;
 			case ECONNRESET:	reason = REASON_CLIENT_DISCONNECTED; break;
 			case ENOBUFS:		reason = REASON_TRANSMIT_QUEUE_FULL; break;

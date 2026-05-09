@@ -7,6 +7,7 @@
 #include "common/kbemalloc.h"
 #include "common/stringconv.h"
 #include "fmt/format.h"
+#include <limits>
 
 namespace KBEngine{
 

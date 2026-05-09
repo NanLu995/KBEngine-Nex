@@ -13,13 +13,29 @@
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
 #include "network/event_poller.h"
+#include "network/poller_iocp.h"
 #include "network/error_reporter.h"
 #include "network/tcp_packet.h"
 #include "network/udp_packet.h"
+#include <limits>
 
 namespace KBEngine { 
 namespace Network
 {
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+
+inline uint32 toUint32Size(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<uint32>::max()));
+	return static_cast<uint32>(v);
+}
+}
 
 //-------------------------------------------------------------------------------------
 static ObjectPool<KCPPacketSender> _g_objPool("KCPPacketSender");
@@ -43,6 +59,7 @@ void KCPPacketSender::reclaimPoolObject(KCPPacketSender* obj)
 //-------------------------------------------------------------------------------------
 void KCPPacketSender::onReclaimObject()
 {
+	UDPPacketSender::onReclaimObject();
 }
 
 //-------------------------------------------------------------------------------------
@@ -90,20 +107,39 @@ Reason KCPPacketSender::processFilterPacket(Channel* pChannel, Packet * pPacket,
 
 
 		if (ikcp_waitsnd(pChannel->pKCP()) > (int)(pChannel->pKCP()->snd_wnd * 2)/* 发送队列超出发送窗口2倍则提示资源不足 */ || 
-			ikcp_send(pChannel->pKCP(), (const char*)pPacket->data(), pPacket->length()) < 0)
+			ikcp_send(pChannel->pKCP(), (const char*)pPacket->data(), toIntSize(pPacket->length())) < 0)
 		{
-			ERROR_MSG(fmt::format("KCPPacketSender::ikcp_send: send error! currPacketSize={}, ikcp_waitsnd={}, snd_wndsize={}\n", 
-				pPacket->length(), ikcp_waitsnd(pChannel->pKCP()), pChannel->pKCP()->snd_wnd));
+			if (pChannel->isInternal())
+			{
+				ERROR_MSG(fmt::format("KCPPacketSender::ikcp_send: send error! currPacketSize={}, ikcp_waitsnd={}, snd_wndsize={}\n", 
+					pPacket->length(), ikcp_waitsnd(pChannel->pKCP()), pChannel->pKCP()->snd_wnd));
+			}
 
 			return REASON_RESOURCE_UNAVAILABLE;
 		}
 
-		pPacket->sentSize += pPacket->length();
+		pPacket->sentSize += toUint32Size(pPacket->length());
 	}
 	else
 	{
 		EndPoint* pEndpoint = pChannel->pEndPoint();
-		int retlen = pEndpoint->sendto((void*)(pPacket->data()), pPacket->length());
+#if KBE_PLATFORM == PLATFORM_WIN32
+		if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(pChannel->networkInterface().dispatcher().pPoller()))
+		{
+			// KCP 最终仍然落到 UDP socket。Windows 下统一交给 IOCP UDP_SEND，
+			// 保证 TCP/UDP/KCP 都是 completion 驱动，避免同步 sendto 卡住主线程。
+			int sendSize = toIntSize(pPacket->length());
+			if (!pIocpPoller->queueUdpSend(static_cast<int>(*pEndpoint), pPacket->data(), sendSize, pEndpoint->addr()))
+			{
+				return checkSocketErrors(pEndpoint);
+			}
+
+			pPacket->sentSize += toUint32Size(pPacket->length());
+			pChannel->onPacketSent(sendSize, true);
+			return REASON_SUCCESS;
+		}
+#endif
+		int retlen = pEndpoint->sendto((void*)(pPacket->data()), toIntSize(pPacket->length()));
 		bool sentCompleted = (retlen == (int)pPacket->length());
 
 		if (retlen > 0)
@@ -136,6 +172,20 @@ int KCPPacketSender::kcp_output(const char *buf, int len, ikcpcb *kcp, Channel* 
 	//KBE_ASSERT(kcp == pChannel->pKCP());
 
 	EndPoint* pEndpoint = pChannel->pEndPoint();
+#if KBE_PLATFORM == PLATFORM_WIN32
+	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(pChannel->networkInterface().dispatcher().pPoller()))
+	{
+		// ikcp_output 可能在一次 tick 中被多次调用，queueUdpSend 会按调用顺序入队，
+		// 每次只挂一个 WSASendTo，completion 后继续发送下一包。
+		if (pIocpPoller->queueUdpSend(static_cast<int>(*pEndpoint), buf, len, pEndpoint->addr()))
+		{
+			pChannel->onPacketSent(len, true);
+			return 0;
+		}
+
+		return -1;
+	}
+#endif
 	int retlen = pEndpoint->sendto((void*)buf, len);
 
 	bool sentCompleted = retlen == len;

@@ -68,7 +68,7 @@ void Entity::enterWorld()
 	pEventData->isPlayer = isPlayer();
 	pEventData->entityClassName = className();
 	pEventData->res = KBTEXT("");
-	KBENGINE_EVENT_FIRE(KBEventTypes::onEnterWorld, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onEnterWorld, pEventData);
 }
 
 void Entity::onEnterWorld()
@@ -87,7 +87,7 @@ void Entity::leaveWorld()
 	pEventData->entityID = id();
 	pEventData->spaceID = KBEngineApp::getSingleton().spaceID();
 	pEventData->isPlayer = isPlayer();
-	KBENGINE_EVENT_FIRE(KBEventTypes::onLeaveWorld, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onLeaveWorld, pEventData);
 }
 
 void Entity::onLeaveWorld()
@@ -111,7 +111,7 @@ void Entity::enterSpace()
 	pEventData->isPlayer = isPlayer();
 	pEventData->entityClassName = className();
 	pEventData->res = KBTEXT("");
-	KBENGINE_EVENT_FIRE(KBEventTypes::onEnterSpace, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onEnterSpace, pEventData);
 	
 	// // 要立即刷新表现层对象的位置
 	// auto pPosEventData = std::make_shared<UKBEventData_set_position>();
@@ -146,7 +146,7 @@ void Entity::leaveSpace()
 	pEventData->entityID = id();
 	pEventData->spaceID = KBEngineApp::getSingleton().spaceID();
 	pEventData->isPlayer = isPlayer();
-	KBENGINE_EVENT_FIRE(KBEventTypes::onLeaveSpace, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onLeaveSpace, pEventData);
 }
 
 void Entity::onLeaveSpace()
@@ -170,7 +170,7 @@ void Entity::onPositionChanged(const KBVector3f& oldValue)
 		pEventData->entityID = id();
 		pEventData->moveSpeed = velocity_;
 		pEventData->isOnGround = isOnGround();
-		KBENGINE_EVENT_FIRE(KBEventTypes::set_position, pEventData);
+		KBENGINE_EVENT_FIRE_OUT(KBEventTypes::set_position, pEventData);
 	}
 }
 
@@ -185,7 +185,7 @@ void Entity::onSmoothPositionChanged(const KBVector3f &oldValue)
 		pEventData->entityID = id();
 		pEventData->moveSpeed = velocity_;
 		pEventData->isOnGround = isOnGround();
-		KBENGINE_EVENT_FIRE(KBEventTypes::updatePosition, pEventData);
+		KBENGINE_EVENT_FIRE_OUT(KBEventTypes::updatePosition, pEventData);
 	}
 }
 
@@ -200,7 +200,7 @@ void Entity::onDirectionChanged(const KBVector3f& oldValue)
 		auto pEventData = std::make_shared<UKBEventData_set_direction>();
 		// KBDir2UE4Dir(pEventData->direction, direction);
 		pEventData->entityID = id();
-		KBENGINE_EVENT_FIRE(KBEventTypes::set_direction, pEventData);
+		KBENGINE_EVENT_FIRE_OUT(KBEventTypes::set_direction, pEventData);
 	}
 }
 

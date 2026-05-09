@@ -5,6 +5,7 @@
 #include "telnet_handler.h"
 #include "network/bundle.h"
 #include "network/endpoint.h"
+#include "network/poller_iocp.h"
 #include "network/network_interface.h"
 
 #ifndef CODE_INLINE
@@ -133,7 +134,7 @@ void TelnetServer::closeHandler(int fd, TelnetHandler* pTelnetHandler)
 	pDispatcher_->deregisterReadFileDescriptor(fd);
 	handlers_.erase(iter);
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 	::close(fd);
 #else
 	::closesocket(fd);
@@ -149,8 +150,59 @@ int	TelnetServer::handleInputNotification(int fd)
 
 	while(tickcount ++ < 1024)
 	{
-		Network::EndPoint* pNewEndPoint = listener_.accept();
+		Network::EndPoint* pNewEndPoint = NULL;
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+		if (Network::IocpPoller* pIocpPoller = dynamic_cast<Network::IocpPoller*>(pDispatcher_->pPoller()))
+		{
+			// IOCP listener 只消费 AcceptEx completion。
+			// 没有完成的 accepted socket 时直接退出本轮，避免和同步 accept 混用。
+			KBESOCKET acceptedSocket = INVALID_SOCKET;
+			if (pIocpPoller->takeAcceptedSocket(fd, acceptedSocket))
+			{
+				pNewEndPoint = Network::EndPoint::createPoolObject(OBJECTPOOL_POINT);
+				pNewEndPoint->setFileDescriptor(acceptedSocket);
+				pNewEndPoint->setnonblocking(true);
+				pNewEndPoint->setnodelay(true);
+
+				u_int16_t networkPort = 0;
+				u_int32_t networkAddr = 0;
+				if (pNewEndPoint->getremoteaddress(&networkPort, &networkAddr) == 0)
+				{
+					pNewEndPoint->addr(networkPort, networkAddr);
+				}
+				else
+				{
+					WARNING_MSG(fmt::format("TelnetServer::handleInputNotification: getremoteaddress({}) failed: {}\n",
+						fd, kbe_strerror(WSAGetLastError())));
+				}
+			}
+
+			if (pNewEndPoint == NULL)
+			{
+				break;
+			}
+		}
+		else
+#endif
+		{
+			pNewEndPoint = listener_.accept();
+		}
+
 		if(pNewEndPoint == NULL){
+#if KBE_PLATFORM == PLATFORM_WIN32
+			int err = WSAGetLastError();
+			if (err == WSAEWOULDBLOCK || err == WSAEINTR)
+			{
+				break;
+			}
+#else
+			int err = kbe_lasterror();
+			if (err == EAGAIN || err == EWOULDBLOCK || err == EINTR)
+			{
+				break;
+			}
+#endif
 
 			if(tickcount == 1)
 			{
@@ -177,7 +229,7 @@ int	TelnetServer::handleInputNotification(int fd)
 			INFO_MSG(fmt::format("TelnetServer::handleInputNotification: new handler({})!\n",
 				pNewEndPoint->c_str()));
 
-			handlers_[(*pNewEndPoint)].reset(pTelnetHandler);
+			handlers_[static_cast<int>((*pNewEndPoint))].reset(pTelnetHandler);
 
 			std::string s;
 
@@ -190,7 +242,7 @@ int	TelnetServer::handleInputNotification(int fd)
 				s = pTelnetHandler->getWelcome();
 			}
 
-			pNewEndPoint->send(s.c_str(), (int)s.size());
+			pNewEndPoint->send(s.c_str(), static_cast<int>(s.size()));
 		}
 	}
 
@@ -199,4 +251,3 @@ int	TelnetServer::handleInputNotification(int fd)
 
 //-------------------------------------------------------------------------------------
 }
-

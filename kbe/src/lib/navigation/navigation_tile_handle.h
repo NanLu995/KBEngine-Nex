@@ -6,7 +6,14 @@
 #include "navigation/navigation_handle.h"
 
 #include "stlastar.h"
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4244 4267 4302 4311)
+#endif
 #include "tmxparser/Tmx.h"
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 namespace KBEngine{
 
@@ -53,26 +60,6 @@ public:
 	
 	static MapSearchNode nodeGoal, nodeStart;
 	static AStarSearch<NavTileHandle::MapSearchNode> astarsearch;
-
-	dtPolyRef findNearestPoly(
-		int layer,
-		const Position3D& pos,
-		Position3D* nearestPt = nullptr
-	) override;
-
-	bool moveAlongSurface(
-		int layer,
-		dtPolyRef& inoutPoly,
-		const Position3D& start,
-		const Position3D& end,
-		Position3D& outPos
-	) override;
-
-	float getPolyHeight(
-		int layer,
-		dtPolyRef poly,
-		const Position3D& pos
-	) override;
 
 public:
 	NavTileHandle(bool dir);

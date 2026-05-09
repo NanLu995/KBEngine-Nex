@@ -155,7 +155,7 @@ inline PyObject* IntType<uint8>::parseDefaultStr(std::string defaultVal)
 		stream >> i;
 	}
 	
-	PyObject* pyval = PyLong_FromUnsignedLong((uint8)i);
+	PyObject* pyval = PyLong_FromUnsignedLong(static_cast<uint8>(i));
 
 	if (PyErr_Occurred()) 
 	{
@@ -184,7 +184,7 @@ inline PyObject* IntType<uint16>::parseDefaultStr(std::string defaultVal)
 		stream >> i;
 	}
 
-	PyObject* pyval = PyLong_FromUnsignedLong((uint16)i);
+	PyObject* pyval = PyLong_FromUnsignedLong(static_cast<uint16>(i));
 
 	if (PyErr_Occurred()) 
 	{
@@ -840,11 +840,11 @@ bool IntType<SPECIFY_TYPE>::isSameType(PyObject* pyValue)
 	int ival = 0;
 	if(PyLong_Check(pyValue))
 	{
-		ival = (int)PyLong_AsLong(pyValue);
+		ival = static_cast<int>(PyLong_AsLong(pyValue));
 		if(PyErr_Occurred())
 		{
 			PyErr_Clear();
-			ival = (int)PyLong_AsUnsignedLong(pyValue);
+			ival = static_cast<int>(PyLong_AsUnsignedLong(pyValue));
 			if (PyErr_Occurred())
 			{
 				OUT_TYPE_ERROR("INT");
@@ -858,7 +858,7 @@ bool IntType<SPECIFY_TYPE>::isSameType(PyObject* pyValue)
 		return false;
 	}
 
-	SPECIFY_TYPE val = (SPECIFY_TYPE)ival;
+	SPECIFY_TYPE val = static_cast<SPECIFY_TYPE>(ival);
 	if(ival != int(val))
 	{
 		ERROR_MSG(fmt::format("IntType::isSameType:{} is out of range (currVal = {}).\n",
@@ -875,13 +875,13 @@ template <typename SPECIFY_TYPE>
 void IntType<SPECIFY_TYPE>::addToStream(MemoryStream* mstream, 
 	PyObject* pyValue)
 {
-	SPECIFY_TYPE v = (SPECIFY_TYPE)PyLong_AsLong(pyValue);
+	SPECIFY_TYPE v = static_cast<SPECIFY_TYPE>(PyLong_AsLong(pyValue));
 	
 	if(PyErr_Occurred())
 	{
 		PyErr_Clear();
 		
-		v = (SPECIFY_TYPE)PyLong_AsUnsignedLong(pyValue);
+		v = static_cast<SPECIFY_TYPE>(PyLong_AsUnsignedLong(pyValue));
 		
 		if(PyErr_Occurred())
 		{

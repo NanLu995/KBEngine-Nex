@@ -338,7 +338,7 @@ void Cellappmgr::reqCreateCellEntityInNewSpace(Network::Channel* pChannel, Memor
 	(*pBundle).append(&s);
 	s.done();
 
-	uint32 cellappSize = cellapp_cids_.size();
+	uint32 cellappSize = static_cast<uint32>(cellapp_cids_.size());
 
 	if (cellappSize > 0)
 	{

@@ -405,9 +405,9 @@ bool ClientSDKCXX::writeEngineMessagesModuleMessage(Network::ExposedMessageInfo&
 		std::string giveargs = "";
 		initBody_ += fmt::format("\n\t\tKBArray<uint8> {}_argstypes;\n", messageInfos.name);
 
-		for (int i = 0; i < (int)messageInfos.argsTypes.size(); ++i)
+		for (size_t i = 0; i < messageInfos.argsTypes.size(); ++i)
 		{
-			int argindex = (i + 1);
+			int argindex = static_cast<int>(i + 1);
 			std::string nativetype = datatype2nativetype(messageInfos.argsTypes[i]);
 
 			KBE_ASSERT(nativetype != "FIXED_DICT" && nativetype != "ARRAY" && nativetype != "PYTHON" && nativetype != "ENTITYCALL");

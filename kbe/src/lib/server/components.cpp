@@ -399,7 +399,7 @@ int Components::connectComponent(COMPONENT_TYPE componentType, int32 uid, COMPON
 
 		if (pEndpoint->connect(pComponentInfos->pIntAddr->port, pComponentInfos->pIntAddr->ip) == -1)
 		{
-			int selgot = select((*pEndpoint) + 1, &frds, &fwds, NULL, &tv);
+			int selgot = select(static_cast<int>((*pEndpoint) + 1), &frds, &fwds, NULL, &tv);
 			if (selgot > 0)
 			{
 				if (FD_ISSET((*pEndpoint), &frds) || FD_ISSET((*pEndpoint), &fwds))
@@ -783,7 +783,7 @@ bool Components::updateComponentInfos(const Components::ComponentInfos* info)
 
 		if(epListen.connect(info->pIntAddr->port, info->pIntAddr->ip) == -1)
 		{
-			int selgot = select(epListen+1, &frds, &fwds, NULL, &tv);
+			int selgot = select(static_cast<int>(epListen + 1), &frds, &fwds, NULL, &tv);
 			if(selgot > 0)
 			{
 				break;
@@ -814,7 +814,7 @@ bool Components::updateComponentInfos(const Components::ComponentInfos* info)
 		(*pBundle).newMessage(BotsInterface::lookApp);
 	}
 
-	epListen.send(pBundle->pCurrPacket()->data(), pBundle->pCurrPacket()->wpos());
+	epListen.send(pBundle->pCurrPacket()->data(), static_cast<int>(pBundle->pCurrPacket()->wpos()));
 	Network::Bundle::reclaimPoolObject(pBundle);
 
 	fd_set	fds;
@@ -823,7 +823,7 @@ bool Components::updateComponentInfos(const Components::ComponentInfos* info)
 	FD_ZERO( &fds );
 	FD_SET((int)epListen, &fds);
 
-	int selgot = select(epListen+1, &fds, NULL, NULL, &tv);
+	int selgot = select(static_cast<int>(epListen + 1), &fds, NULL, NULL, &tv);
 	if(selgot == 0)
 	{
 		// 超时, 可能对方繁忙
@@ -857,15 +857,20 @@ bool Components::updateComponentInfos(const Components::ComponentInfos* info)
 		}
 
 		int len = epListen.recv(packet.data(), recvsize);
+		if(len <= 0)
+		{
+			WARNING_MSG(fmt::format("Components::updateComponentInfos: query {}({}) got no response from {}, recvsize={}; keep component for retry.\n",
+				COMPONENT_NAME_EX(info->componentType), info->cid, info->pIntAddr->c_str(), len));
+
+			return true;
+		}
+
 		packet.wpos(len);
-		
+
 		if(recvsize != len)
 		{
-			WARNING_MSG(fmt::format("Components::updateComponentInfos: packet invalid(recvsize({}) != ctype_cid_len({}).\n" 
+			WARNING_MSG(fmt::format("Components::updateComponentInfos: packet invalid(recvsize({}) != ctype_cid_len({}).\n"
 				, len, recvsize));
-			
-			if(len == 0)
-				return false;
 
 			return true;
 		}
@@ -1225,126 +1230,137 @@ bool Components::findComponents()
 #endif
 			}
 
-			Network::BundleBroadcast bhandler(*pNetworkInterface(), nport);
-			if(!bhandler.good())
-			{
-				//ERROR_MSG("Components::findComponents: bhandler error!\n");
-				return false;
-			}
+			const int maxReceiveAttempts = 10;
+			bool advanceFindIdx = false;
 
-			bhandler.itry(0);
-			if(bhandler.pCurrPacket() != NULL)
+			for (int findAttempt = 0; findAttempt < maxReceiveAttempts; ++findAttempt)
 			{
-				bhandler.pCurrPacket()->resetPacket();
-			}
+				Network::BundleBroadcast bhandler(*pNetworkInterface(), nport);
+				if(!bhandler.good())
+				{
+					//ERROR_MSG("Components::findComponents: bhandler error!\n");
+					return false;
+				}
 
-			bhandler.newMessage(MachineInterface::onFindInterfaceAddr);
-			MachineInterface::onFindInterfaceAddrArgs7::staticAddToBundle(bhandler, getUserUID(), getUsername(), 
-				componentType_, componentID_, findComponentType, pNetworkInterface()->intTcpAddr().ip, bhandler.epListen().addr().port);
+				bhandler.itry(0);
+				if(bhandler.pCurrPacket() != NULL)
+				{
+					bhandler.pCurrPacket()->resetPacket();
+				}
+
+				bhandler.newMessage(MachineInterface::onFindInterfaceAddr);
+				MachineInterface::onFindInterfaceAddrArgs7::staticAddToBundle(bhandler, getUserUID(), getUsername(), 
+					componentType_, componentID_, findComponentType, pNetworkInterface()->intTcpAddr().ip, bhandler.epListen().addr().port);
+				
+				ENGINE_COMPONENT_INFO cinfos = ServerConfig::getSingleton().getKBMachine();
+				std::vector< std::string >::iterator machine_addresses_iter = cinfos.machine_addresses.begin();
+				for(; machine_addresses_iter != cinfos.machine_addresses.end(); ++machine_addresses_iter)
+					bhandler.addBroadCastAddress((*machine_addresses_iter));
+				
+				if(!bhandler.broadcast())
+				{
+					ERROR_MSG("Components::findComponents: broadcast error!\n");
+					return false;
+				}
 			
-			ENGINE_COMPONENT_INFO cinfos = ServerConfig::getSingleton().getKBMachine();
-			std::vector< std::string >::iterator machine_addresses_iter = cinfos.machine_addresses.begin();
-			for(; machine_addresses_iter != cinfos.machine_addresses.end(); ++machine_addresses_iter)
-				bhandler.addBroadCastAddress((*machine_addresses_iter));
-			
-			if(!bhandler.broadcast())
-			{
-				ERROR_MSG("Components::findComponents: broadcast error!\n");
-				return false;
-			}
-		
-			int32 timeout = 1500000;
-			bool showerr = true;
-			MachineInterface::onBroadcastInterfaceArgs25 args;
+				int32 timeout = 500000;
+				bool showerr = false;
+				MachineInterface::onBroadcastInterfaceArgs25 args;
 
 RESTART_RECV:
 
-			if(bhandler.receive(&args, 0, timeout, showerr))
-			{
-				bool isContinue = false;
-				showerr = false;
-				timeout = 1000000;
-
-				do
+				if(bhandler.receive(&args, 0, timeout, showerr))
 				{
-					if(isContinue)
+					bool isContinue = false;
+					showerr = false;
+					timeout = 1000000;
+
+					do
 					{
-						try
+						if(isContinue)
 						{
-							args.createFromStream(*bhandler.pCurrPacket());
-						}catch(MemoryStreamException &)
+							try
+							{
+								args.createFromStream(*bhandler.pCurrPacket());
+							}catch(MemoryStreamException &)
+							{
+								break;
+							}
+						}
+						
+						if(args.componentIDEx != componentID_)
 						{
-							break;
+							WARNING_MSG(fmt::format("Components::findComponents: msg.componentID {} != {}.\n", 
+								args.componentIDEx, componentID_));
+							
+							args.componentIDEx = 0;
+							goto RESTART_RECV;
+						}
+
+						// 如果找不到
+						if(args.componentType == UNKNOWN_COMPONENT_TYPE)
+						{
+							isContinue = true;
+							continue;
+						}
+
+						INFO_MSG(fmt::format("Components::findComponents: found {}, addr:{}:{}\n",
+							COMPONENT_NAME_EX((COMPONENT_TYPE)args.componentType),
+							inet_ntoa((struct in_addr&)args.intaddr),
+							ntohs(args.intport)));
+
+						Components::getSingleton().addComponent(args.uid, args.username.c_str(), 
+							(KBEngine::COMPONENT_TYPE)args.componentType, args.componentID, args.globalorderid, args.grouporderid, args.gus,
+							args.intaddr, args.intport, args.extaddr, args.extport, args.extaddrEx, args.pid, args.cpu, args.mem, 
+							args.usedmem, args.extradata, args.extradata1, args.extradata2, args.extradata3);
+
+						isContinue = true;
+					}while(bhandler.pCurrPacket()->length() > 0);
+
+					// 防止接收到的数据不是想要的数据
+					if(findComponentType == args.componentType)
+					{
+						// 这里做个特例， 是logger则优先连接上去， 这样可以尽早同步日志
+						if(findComponentType == (int8)LOGGER_TYPE)
+						{
+							findComponentTypes_[findIdx_] = -1;
+							if(connectComponent(static_cast<COMPONENT_TYPE>(findComponentType), getUserUID(), 0) != 0)
+							{
+								ERROR_MSG(fmt::format("Components::findComponents: register self to {} error!\n",
+								COMPONENT_NAME_EX((COMPONENT_TYPE)findComponentType)));
+								findIdx_++;
+								//dispatcher().breakProcessing();
+								return false;
+							}
+							else
+							{
+								findIdx_++;
+								advanceFindIdx = true;
+								break;
+							}
 						}
 					}
 					
-					if(args.componentIDEx != componentID_)
-					{
-						WARNING_MSG(fmt::format("Components::findComponents: msg.componentID {} != {}.\n", 
-							args.componentIDEx, componentID_));
-						
-						args.componentIDEx = 0;
-						goto RESTART_RECV;
-					}
-
-					// 如果找不到
-					if(args.componentType == UNKNOWN_COMPONENT_TYPE)
-					{
-						isContinue = true;
-						continue;
-					}
-
-					INFO_MSG(fmt::format("Components::findComponents: found {}, addr:{}:{}\n",
-						COMPONENT_NAME_EX((COMPONENT_TYPE)args.componentType),
-						inet_ntoa((struct in_addr&)args.intaddr),
-						ntohs(args.intport)));
-
-					Components::getSingleton().addComponent(args.uid, args.username.c_str(), 
-						(KBEngine::COMPONENT_TYPE)args.componentType, args.componentID, args.globalorderid, args.grouporderid, args.gus,
-						args.intaddr, args.intport, args.extaddr, args.extport, args.extaddrEx, args.pid, args.cpu, args.mem, 
-						args.usedmem, args.extradata, args.extradata1, args.extradata2, args.extradata3);
-
-					isContinue = true;
-				}while(bhandler.pCurrPacket()->length() > 0);
-
-				// 防止接收到的数据不是想要的数据
-				if(findComponentType == args.componentType)
-				{
-					// 这里做个特例， 是logger则优先连接上去， 这样可以尽早同步日志
-					if(findComponentType == (int8)LOGGER_TYPE)
-					{
-						findComponentTypes_[findIdx_] = -1;
-						if(connectComponent(static_cast<COMPONENT_TYPE>(findComponentType), getUserUID(), 0) != 0)
-						{
-							ERROR_MSG(fmt::format("Components::findComponents: register self to {} error!\n",
-							COMPONENT_NAME_EX((COMPONENT_TYPE)findComponentType)));
-							findIdx_++;
-							//dispatcher().breakProcessing();
-							return false;
-						}
-						else
-						{
-							findIdx_++;
-							continue;
-						}
-					}
-				}
-				
-				goto RESTART_RECV;
-			}
-			else
-			{
-				if(Components::getSingleton().getComponents((COMPONENT_TYPE)findComponentType).size() > 0)
-				{
-					findIdx_++;
-					count = 0;
+					goto RESTART_RECV;
 				}
 				else
 				{
-					if(showerr)
+					if(Components::getSingleton().getComponents((COMPONENT_TYPE)findComponentType).size() > 0)
 					{
-						ERROR_MSG("Components::findComponents: receive error!\n");
+						findIdx_++;
+						count = 0;
+						advanceFindIdx = true;
+						break;
 					}
+
+					if(findAttempt + 1 < maxReceiveAttempts)
+					{
+						KBEngine::sleep(50);
+						continue;
+					}
+
+					// ERROR_MSG(fmt::format("Components::findComponents: receive error while finding {} after {} attempts.\n",
+					// 	COMPONENT_NAME_EX((COMPONENT_TYPE)findComponentType), maxReceiveAttempts));
 
 					// 如果是这些辅助组件没找到则跳过
 					int helperComponentIdx = 0;
@@ -1367,10 +1383,13 @@ RESTART_RECV:
 							return false;
 						}
 					}
-				}
 
-				return false;
+					return false;
+				}
 			}
+
+			if(advanceFindIdx)
+				continue;
 		}
 
 		state_ = 2;

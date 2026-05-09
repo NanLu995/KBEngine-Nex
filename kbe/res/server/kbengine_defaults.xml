@@ -5,7 +5,7 @@
 	<gameUpdateHertz> 10 </gameUpdateHertz>
 	
 	<!-- asyncio调度频率（秒） -->
-	<asyncioRepeatOffset> 0.1 </asyncioRepeatOffset>
+	<asyncioRepeatOffset> 0 </asyncioRepeatOffset>
 	
 	<!-- 每秒发送到客户端的带宽限制(bit) 
 		(The data sent to the client, the second bandwidth limit (bit))
@@ -121,6 +121,18 @@
 			<internal>	16777216	</internal>				<!-- 16M -->
 			<external>	0			</external>				<!-- 系统默认(system default) -->
 		</writeBufferSize>
+
+		<!--
+			Completion后端的主循环公平性预算。
+			maxCompletionsPerTick: 单个tick最多连续处理多少个完成事件。
+			maxProcessingTimeMS: 单个tick连续处理completion的时间预算，0表示不按时间让步。
+			这些值不会丢弃IOCP队列里的完成事件；未处理完的事件会留到下一轮tick继续处理。
+			(Completion backend budget. It prevents completion bursts from monopolizing the main loop without dropping queued events.)
+		-->
+		<completionBudget>
+			<maxCompletionsPerTick> 1024 </maxCompletionsPerTick>
+			<maxProcessingTimeMS> 5 </maxProcessingTimeMS>
+		</completionBudget>
 		
 		<!-- 发送与接收窗口溢出值，0无限制
 			(the value of the send/receive window overflow, 0 is unlimited)
@@ -217,6 +229,19 @@
 		(The callback: default timeout(seconds))
 	-->
 	<callback_timeout> 300.0 </callback_timeout>
+	
+	<!-- KBEngine.urlopen默认超时设置
+		(KBEngine.urlopen default timeout settings)
+		timeout: 整个请求最大耗时，0表示不限制（秒）
+		connectTimeout: 建立连接最大耗时，0表示使用libcurl默认行为（秒）
+		lowSpeedTime/lowSpeedLimit: 持续lowSpeedTime秒低于lowSpeedLimit bytes/s则中止
+	-->
+	<urlopen>
+		<timeout> 10 </timeout>
+		<connectTimeout> 10 </connectTimeout>
+		<lowSpeedTime> 5 </lowSpeedTime>
+		<lowSpeedLimit> 30 </lowSpeedLimit>
+	</urlopen>
 	
 	<thread_pool>
 		<!-- 默认超时时间(秒) 

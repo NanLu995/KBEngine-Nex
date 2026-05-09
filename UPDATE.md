@@ -1,6 +1,37 @@
 
 # 更新日志
 
+
+## 2.8.1
+- [fix] 修复使用navigateToDetour时，结束移动后navigateToDetour不被同步导致entity乱跳跃的的bug
+- [fix] 修复C++ SDK ObjectPool的一处BUG
+- [fix] 修复C++ SDK tcp下时序错乱的BUG
+- [fix] 修复 MySQL 写入和删除实体时，收集子表 DBID 使用父表名查找的问题，避免多子表场景下子表记录同步异常。
+- [fix] 修复 KBEngine.MemoryStream 销毁时没有减少 PyGC tracing 计数导致泄露的BUG。 [Issue #131](https://github.com/KBEngineLab/KBEngine-Nex/issues/131)
+- [feat] raycast完善，优化导航射线检测，支持斜、垂直射线（未来考虑拆分成可走区域探测和空间射线两个方法） [Issue #79](https://github.com/KBEngineLab/KBEngine-Nex/issues/79)
+- [feat] 新增 completionBudget 配置，限制每 tick 处理的完成事件数量和耗时，避免网络完成事件过多占满主循环。（目前仅win iocp）
+- [feat] rider支持，目前仅支持windows [Issue #135](https://github.com/KBEngineLab/KBEngine-Nex/issues/135)
+- [feat] cmake 编译器切换到ninja ，加速编译 [Issue #142](https://github.com/KBEngineLab/KBEngine-Nex/issues/142)
+- [feat] Apple Silicon支持 [Issue #37](https://github.com/KBEngineLab/KBEngine-Nex/issues/37)
+- [feat] macos io多路复用 kqueue [Issue #139](https://github.com/KBEngineLab/KBEngine-Nex/issues/139)
+- [feat] kbex macos支持 [Issue #141](https://github.com/KBEngineLab/KBEngine-Nex/issues/141)
+- [feat] windows select替换为IOCP [Issue #136](https://github.com/KBEngineLab/KBEngine-Nex/issues/136)
+- [feat] win server 异常退出时生成dump信息 [Issue #155](https://github.com/KBEngineLab/KBEngine-Nex/issues/155)
+- [feat] kbex 进程管理优化 https://www.kbelab.com/kbenginex/home.html [Issue #122](https://github.com/KBEngineLab/KBEngine-Nex/issues/122)
+- [feat] kbex 可视化功能添加 https://www.kbelab.com/kbenginex/home.html [Issue #123](https://github.com/KBEngineLab/KBEngine-Nex/issues/123)
+- [feat] 兔子世界案例迁移到Nex https://github.com/KBEngineLab/demo_kbengine_unity_rabbit
+- [perf] 升级TS SDK Event 区分out/in事件注册与触发 [Issue #126](https://github.com/KBEngineLab/KBEngine-Nex/issues/126)
+- [perf] 升级c++ SDK Event 区分out/in事件注册与触发 [Issue #126](https://github.com/KBEngineLab/KBEngine-Nex/issues/126)
+- [perf] 给 c++层的 Python Map 增加 clear， pop 成员函数 [Issue #129](https://github.com/KBEngineLab/KBEngine-Nex/issues/129)
+- [perf] c++升级到兼容17/20 [Issue #132](https://github.com/KBEngineLab/KBEngine-Nex/issues/132)
+- [perf] 优化掉所有的Warning [Issue #133](https://github.com/KBEngineLab/KBEngine-Nex/issues/133)
+- [perf] c++ sdk 移除libhv依赖
+- [perf] python async调度迁移到c++底层 [Issue #137](https://github.com/KBEngineLab/KBEngine-Nex/issues/137)
+- [perf] 优化kcp 客户端断开连接后的重试ERROR日志，变更为WARNING并更友好的提示
+- [perf] 优化kcp断连后的ERROR，ikcp_send外部客户端发送窗口满不再每次 ERROR_MSG（内部通道保留）
+- [perf] KBEngine.urlopen 超时配置 ，支持timeout、connectTimeout、lowSpeedTime/lowSpeedLimit [Issue #128](https://github.com/KBEngineLab/KBEngine-Nex/issues/128)
+- [perf] Docker镜像下线，由于KBE已经全平台支持，所以不再提供Docker镜像，请小伙伴们自行使用dockerfile [Issue #164](https://github.com/KBEngineLab/KBEngine-Nex/issues/164)
+
 ## 2.7.4
 - [feat] NavMesh Generator 添加了一个坐标配置管理器
     1.支持选点添加或更新到配置

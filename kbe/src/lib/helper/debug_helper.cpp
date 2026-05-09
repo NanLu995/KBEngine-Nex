@@ -14,7 +14,7 @@
 #include "network/tcp_packet.h"
 #include "server/serverconfig.h"
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 #include <unistd.h>
 #include <syslog.h>
 #endif
@@ -519,7 +519,7 @@ void DebugHelper::sync()
 
 		// 将他们的内存交换进去
 		pBundle->pCurrPacket()->swap(*pMemoryStream);
-		pBundle->currMsgLength(pBundle->currMsgLength() + pBundle->pCurrPacket()->length());
+		pBundle->currMsgLength(static_cast<Network::MessageLength1>(pBundle->currMsgLength() + pBundle->pCurrPacket()->length()));
 
 		// 将所有对象交还给对象池
 		memoryStreamPool_.reclaimObject(pMemoryStream);
@@ -794,7 +794,7 @@ void DebugHelper::printBufferedLogs()
 
 		// 将他们的内存交换进去
 		pBundle->pCurrPacket()->swap(*pMemoryStream);
-		pBundle->currMsgLength(pBundle->currMsgLength() + pBundle->pCurrPacket()->length());
+		pBundle->currMsgLength(static_cast<Network::MessageLength1>(pBundle->currMsgLength() + pBundle->pCurrPacket()->length()));
 
 		// 将所有对象交还给对象池
 		memoryStreamPool_.reclaimObject(pMemoryStream);
@@ -1196,7 +1196,7 @@ void DebugHelper::closeLogger()
 {
 	// close logger for fork + execv
 #ifndef NO_USE_LOG4CXX
-	g_logger = (const int)NULL;
+	g_logger = nullptr;
 	log4cxx::LogManager::shutdown();
 #endif
 }

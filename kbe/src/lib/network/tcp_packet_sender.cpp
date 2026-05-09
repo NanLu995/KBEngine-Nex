@@ -13,13 +13,23 @@
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
 #include "network/event_poller.h"
+#include "network/poller_iocp.h"
 #include "network/error_reporter.h"
 #include "network/tcp_packet.h"
 #include "network/udp_packet.h"
+#include <limits>
 
 namespace KBEngine { 
 namespace Network
 {
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+}
 
 //-------------------------------------------------------------------------------------
 static ObjectPool<TCPPacketSender> _g_objPool("TCPPacketSender");
@@ -138,25 +148,40 @@ bool TCPPacketSender::processSend(Channel* pChannel, int userarg)
 						(pChannel->isInternal() ? "internal" : "external")));
 				*/
 
-				// 连续超过10次则通知出错
-				if (++sendfailCount_ >= 10 && pChannel->isExternal())
-				{
-					onGetError(pChannel, "TCPPacketSender::processSend: sendfailCount >= 10");
+				++sendfailCount_;
 
-					this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(), 
-						fmt::format("TCPPacketSender::processSend(external, sendfailCount({}) >= 10)", (int)sendfailCount_).c_str());
+				// External channels keep strict behavior.
+				if (pChannel->isExternal())
+				{
+					if (sendfailCount_ >= 10)
+					{
+						onGetError(pChannel, "TCPPacketSender::processSend: sendfailCount >= 10");
+
+						this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(),
+							fmt::format("TCPPacketSender::processSend(external, sendfailCount({}) >= 10)", (int)sendfailCount_).c_str());
+					}
+					else
+					{
+						this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(),
+							fmt::format("TCPPacketSender::processSend(external, {})", (int)sendfailCount_).c_str());
+					}
 				}
 				else
 				{
-					this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(), 
-						fmt::format("TCPPacketSender::processSend({}, {})", (pChannel->isInternal() ? "internal" : "external"), (int)sendfailCount_).c_str());
+					// Internal channels: startup bursts on macOS can transiently hit EAGAIN.
+					// Retry silently and only report occasionally to reduce noise.
+					if ((sendfailCount_ % 100) == 0)
+					{
+						this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(),
+							fmt::format("TCPPacketSender::processSend(internal, {})", (int)sendfailCount_).c_str());
+					}
 				}
 			}
 			else
 			{
 				if (pChannel->isExternal())
 				{
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 					this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(), "TCPPacketSender::processSend(external)",
 						fmt::format(", errno: {}", errno).c_str());
 #else
@@ -166,7 +191,7 @@ bool TCPPacketSender::processSend(Channel* pChannel, int userarg)
 				}
 				else
 				{
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 					this->dispatcher().errorReporter().reportException(reason, pEndpoint_->addr(), "TCPPacketSender::processSend(internal)",
 						fmt::format(", errno: {}, {}", errno, pChannel->c_str()).c_str());
 #else
@@ -185,7 +210,21 @@ bool TCPPacketSender::processSend(Channel* pChannel, int userarg)
 	bundles.clear();
 
 	if(noticed)
+	{
+#if KBE_PLATFORM == PLATFORM_WIN32
+		if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
+		{
+			// 写通知可能只是“某次 WSASend completion 到达”。
+			// 如果 IOCP 内部还有 pending 发送，Channel 仍处于发送中，
+			// 不能提前 onSendCompleted，否则 FLAG_SENDING 会被过早清掉。
+			if (pIocpPoller->hasPendingSend(static_cast<int>(*pEndpoint_)))
+			{
+				return true;
+			}
+		}
+#endif
 		pChannel->onSendCompleted();
+	}
 
 	return true;
 }
@@ -199,7 +238,32 @@ Reason TCPPacketSender::processFilterPacket(Channel* pChannel, Packet * pPacket,
 	}
 
 	EndPoint* pEndpoint = pChannel->pEndPoint();
-	int len = pEndpoint->send(pPacket->data() + pPacket->sentSize, pPacket->length() - pPacket->sentSize);
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
+	{
+		// IOCP 模式下 processFilterPacket 只负责把数据交给 poller 队列。
+		// 真实发送完成由 TCP_SEND completion 驱动，所以上层 packet 可以
+		// 标记为已交付，避免旧的同步 send 半包重试逻辑和 IOCP 队列重复发送。
+		const int sendSize = toIntSize(pPacket->length() - pPacket->sentSize);
+		if (sendSize <= 0)
+		{
+			return REASON_SUCCESS;
+		}
+
+		if (!pIocpPoller->queueTcpSend(static_cast<int>(*pEndpoint),
+			pPacket->data() + pPacket->sentSize, sendSize))
+		{
+			return checkSocketErrors(pEndpoint);
+		}
+
+		pPacket->sentSize += sendSize;
+		pChannel->onPacketSent(sendSize, true);
+		return REASON_SUCCESS;
+	}
+#endif
+
+	int len = pEndpoint->send(pPacket->data() + pPacket->sentSize, toIntSize(pPacket->length() - pPacket->sentSize));
 
 	if(len > 0)
 	{

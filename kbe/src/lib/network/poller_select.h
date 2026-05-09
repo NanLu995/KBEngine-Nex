@@ -5,11 +5,9 @@
 
 #include "event_poller.h"
 
-namespace KBEngine { 
+namespace KBEngine {
 namespace Network
 {
-
-#ifndef HAS_EPOLL
 
 class SelectPoller : public EventPoller
 {
@@ -38,9 +36,6 @@ private:
 	// 注册写的socket描述符数量
 	int							fdWriteCount_;
 };
-
-
-#endif // HAS_EPOLL
 
 }
 }

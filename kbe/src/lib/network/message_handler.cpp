@@ -311,13 +311,13 @@ std::string MessageHandlers::getDigestStr()
 		}
 
 		std::vector<MessageHandlers*>& msgHandlers = messageHandlers();
-		isize += msgHandlers.size();
+		isize += static_cast<int32>(msgHandlers.size());
 		md5.append((void*)&isize, sizeof(int32));
 
 		std::vector<MessageHandlers*>::const_iterator rootiter = msgHandlers.begin();
 		for(; rootiter != msgHandlers.end(); ++rootiter)
 		{
-			isize += (*rootiter)->msgHandlers().size();
+			isize += static_cast<int32>((*rootiter)->msgHandlers().size());
 			md5.append((void*)&isize, sizeof(int32));
 
 			MessageHandlerMap::const_iterator iter = (*rootiter)->msgHandlers().begin();
@@ -330,7 +330,7 @@ std::string MessageHandlers::getDigestStr()
 				md5.append((void*)&pMessageHandler->msgLen, sizeof(int32));
 				md5.append((void*)&pMessageHandler->exposed, sizeof(bool));
 	 
-				int32 argsize = pMessageHandler->pArgs->strArgsTypes.size();
+				int32 argsize = static_cast<int32>(pMessageHandler->pArgs->strArgsTypes.size());
 				md5.append((void*)&argsize, sizeof(int32));
 
 				int32 argstype = (int32)pMessageHandler->pArgs->type();

@@ -513,7 +513,7 @@ void ServerApp::hello(Network::Channel* pChannel, MemoryStream& s)
 
 	if (encryptedKey.size() > 3 && encryptedKey.size() <= 65535)
 	{
-		for (int i = 0; i < (int)encryptedKey.size(); ++i)
+	for (size_t i = 0; i < encryptedKey.size(); ++i)
 		{
 			memset(buf, 0, MAX_BUF);
 			kbe_snprintf(buf, MAX_BUF / 2, "%02hhX ", (unsigned char)encryptedKey.data()[i]);

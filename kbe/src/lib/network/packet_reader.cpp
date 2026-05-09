@@ -4,10 +4,25 @@
 #include "network/channel.h"
 #include "network/message_handler.h"
 #include "network/network_stats.h"
+#include <limits>
 
 namespace KBEngine { 
 namespace Network
 {
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+
+inline uint32 toUint32Size(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<uint32>::max()));
+	return static_cast<uint32>(v);
+}
+}
 
 
 //-------------------------------------------------------------------------------------
@@ -69,12 +84,18 @@ void PacketReader::processMessages(KBEngine::Network::MessageHandlers* pMsgHandl
 			if(pMsgHandler == NULL)
 			{
 				MemoryStream* pPacket1 = pFragmentStream_ != NULL ? pFragmentStream_ : pPacket;
-				TRACE_MESSAGE_PACKET(true, pPacket1, pMsgHandler, pPacket1->length(), pChannel_->c_str(), false);
+				#pragma warning(push)
+				#pragma warning(disable:4267)
+				TRACE_MESSAGE_PACKET(true, pPacket1, pMsgHandler, toIntSize(pPacket1->length()), pChannel_->c_str(), false);
+				#pragma warning(pop)
 				
 				// 用作调试时比对
-				uint32 rpos = pPacket1->rpos();
+				uint32 rpos = toUint32Size(pPacket1->rpos());
 				pPacket1->rpos(0);
-				TRACE_MESSAGE_PACKET(true, pPacket1, pMsgHandler, pPacket1->length(), pChannel_->c_str(), false);
+				#pragma warning(push)
+				#pragma warning(disable:4267)
+				TRACE_MESSAGE_PACKET(true, pPacket1, pMsgHandler, toIntSize(pPacket1->length()), pChannel_->c_str(), false);
+				#pragma warning(pop)
 				pPacket1->rpos(rpos);
 
 				ERROR_MSG(fmt::format("PacketReader::processMessages: not found msgID={}, msglen={}, from {}.\n",
@@ -151,12 +172,18 @@ void PacketReader::processMessages(KBEngine::Network::MessageHandlers* pMsgHandl
 				currMsgLen_ > NETWORK_MESSAGE_MAX_SIZE)
 			{
 				MemoryStream* pPacket1 = pFragmentStream_ != NULL ? pFragmentStream_ : pPacket;
-				TRACE_MESSAGE_PACKET(true, pPacket1, pMsgHandler, pPacket1->length(), pChannel_->c_str(), false);
+				#pragma warning(push)
+				#pragma warning(disable:4267)
+				TRACE_MESSAGE_PACKET(true, pPacket1, pMsgHandler, toIntSize(pPacket1->length()), pChannel_->c_str(), false);
+				#pragma warning(pop)
 
 				// 用作调试时比对
-				uint32 rpos = pPacket1->rpos();
+				uint32 rpos = toUint32Size(pPacket1->rpos());
 				pPacket1->rpos(0);
-				TRACE_MESSAGE_PACKET(true, pPacket1, pMsgHandler, pPacket1->length(), pChannel_->c_str(), false);
+				#pragma warning(push)
+				#pragma warning(disable:4267)
+				TRACE_MESSAGE_PACKET(true, pPacket1, pMsgHandler, toIntSize(pPacket1->length()), pChannel_->c_str(), false);
+				#pragma warning(pop)
 				pPacket1->rpos(rpos);
 
 				WARNING_MSG(fmt::format("PacketReader::processMessages({0}): msglen exceeds the limit! msgID={1}, msglen=({2}:{3}), maxlen={5}, from {4}.\n", 
@@ -169,7 +196,10 @@ void PacketReader::processMessages(KBEngine::Network::MessageHandlers* pMsgHandl
 
 			if(pFragmentStream_ != NULL)
 			{
+				#pragma warning(push)
+				#pragma warning(disable:4267)
 				TRACE_MESSAGE_PACKET(true, pFragmentStream_, pMsgHandler, currMsgLen_, pChannel_->c_str(), false);
+				#pragma warning(pop)
 				pMsgHandler->handle(pChannel_, *pFragmentStream_);
 				MemoryStream::reclaimPoolObject(pFragmentStream_);
 				pFragmentStream_ = NULL;
@@ -186,9 +216,12 @@ void PacketReader::processMessages(KBEngine::Network::MessageHandlers* pMsgHandl
 				size_t wpos = pPacket->wpos();
 				// size_t rpos = pPacket->rpos();
 				size_t frpos = pPacket->rpos() + currMsgLen_;
-				pPacket->wpos(frpos);
+				pPacket->wpos(toIntSize(frpos));
 
+				#pragma warning(push)
+				#pragma warning(disable:4267)
 				TRACE_MESSAGE_PACKET(true, pPacket, pMsgHandler, currMsgLen_, pChannel_->c_str(), true);
+				#pragma warning(pop)
 				pMsgHandler->handle(pChannel_, *pPacket);
 
 				// 如果handler没有处理完数据则输出一个警告
@@ -199,11 +232,11 @@ void PacketReader::processMessages(KBEngine::Network::MessageHandlers* pMsgHandl
 						WARNING_MSG(fmt::format("PacketReader::processMessages({}): rpos({}) invalid, expect={}. msgID={}, msglen={}.\n",
 							pMsgHandler->name.c_str(), pPacket->rpos(), frpos, currMsgID_, currMsgLen_));
 
-						pPacket->rpos(frpos);
+						pPacket->rpos(toIntSize(frpos));
 					}
 				}
 
-				pPacket->wpos(wpos);
+				pPacket->wpos(toIntSize(wpos));
 			}
 
 			currMsgID_ = 0;
@@ -222,11 +255,12 @@ void PacketReader::writeFragmentMessage(FragmentDataTypes fragmentDatasFlag, Pac
 	KBE_ASSERT(pFragmentDatas_ == NULL);
 
 	size_t opsize = pPacket->length();
-	pFragmentDatasRemain_ = datasize - opsize;
+	KBE_ASSERT(opsize <= std::numeric_limits<uint32>::max());
+	pFragmentDatasRemain_ = datasize - toUint32Size(opsize);
 	pFragmentDatas_ = new uint8[opsize + pFragmentDatasRemain_ + 1];
 
 	fragmentDatasFlag_ = fragmentDatasFlag;
-	pFragmentDatasWpos_ = opsize;
+	pFragmentDatasWpos_ = static_cast<uint32>(opsize);
 
 	if(pPacket->length() > 0)
 	{
@@ -248,7 +282,7 @@ void PacketReader::mergeFragmentMessage(Packet* pPacket)
 	if(pPacket->length() >= pFragmentDatasRemain_)
 	{
 		memcpy(pFragmentDatas_ + pFragmentDatasWpos_, pPacket->data() + pPacket->rpos(), pFragmentDatasRemain_);
-		pPacket->rpos(pPacket->rpos() + pFragmentDatasRemain_);
+		pPacket->rpos(toIntSize(pPacket->rpos() + pFragmentDatasRemain_));
 
 		KBE_ASSERT(pFragmentStream_ == NULL);
 
@@ -289,9 +323,10 @@ void PacketReader::mergeFragmentMessage(Packet* pPacket)
 	else
 	{
 		memcpy(pFragmentDatas_ + pFragmentDatasWpos_, pPacket->data(), opsize);
-		pFragmentDatasRemain_ -= opsize;
-		pFragmentDatasWpos_ += opsize;
-		pPacket->rpos(pPacket->rpos() + opsize);
+		KBE_ASSERT(opsize <= std::numeric_limits<uint32>::max());
+		pFragmentDatasRemain_ -= toUint32Size(opsize);
+		pFragmentDatasWpos_ += static_cast<uint32>(opsize);
+		pPacket->rpos(toIntSize(pPacket->rpos() + opsize));
 
 		//DEBUG_MSG(fmt::format("PacketReader::mergeFragmentMessage({}): channel[{:p}], fragmentDatasFlag={}, remainsize={}, currMsgID={}, currMsgLen={}.\n",
 		//	pChannel_->c_str(), (void*)pChannel_, fragmentDatasFlag_, pFragmentDatasRemain_, currMsgID_, currMsgLen_));

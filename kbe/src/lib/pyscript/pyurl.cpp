@@ -5,6 +5,7 @@
 #include "scriptstdouterr.h"
 #include "py_macros.h"
 #include "helper/profile.h"
+#include <limits>
 
 namespace KBEngine{ namespace script {
 
@@ -68,7 +69,7 @@ void PyUrl::onHttpCallback(bool success, const Network::Http::Request& pRequest,
 //-------------------------------------------------------------------------------------
 PyObject* PyUrl::__py_urlopen(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* pyCallback = NULL;
 	char* surl = NULL;
 	int ret = 0;
@@ -204,7 +205,15 @@ PyObject* PyUrl::__py_urlopen(PyObject* self, PyObject* args)
 
 	if (postDataLength > 0 && postData)
 	{
-		Network::Http::Request::Status result = pRequest->setPostData(postData, postDataLength);
+		if (postDataLength > static_cast<Py_ssize_t>(std::numeric_limits<unsigned int>::max()))
+		{
+			delete pRequest;
+			PyErr_Format(PyExc_OverflowError, "KBEngine::urlopen: postData is too large!");
+			PyErr_PrintEx(0);
+			return NULL;
+		}
+
+		Network::Http::Request::Status result = pRequest->setPostData(postData, static_cast<unsigned int>(postDataLength));
 		if (Network::Http::Request::OK != result)
 		{
 			delete pRequest;

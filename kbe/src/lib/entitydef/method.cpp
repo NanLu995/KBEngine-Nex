@@ -82,10 +82,10 @@ bool MethodDescription::checkArgs(PyObject* args)
 	}
 	
 	int offset = (isExposed() == EXPOSED_AND_CALLER_CHECK && g_componentType == CELLAPP_TYPE && isCell()) ? 1 : 0;
-	uint8 argsSize = (uint8)argTypes_.size();
-	uint8 giveArgsSize = (uint8)PyTuple_Size(args);
+	uint8 argsSize = static_cast<uint8>(argTypes_.size());
+	Py_ssize_t giveArgsSize = PyTuple_Size(args);
 
-	if (giveArgsSize != argsSize + offset)
+	if (giveArgsSize != static_cast<Py_ssize_t>(argsSize + offset))
 	{
 		PyErr_Format(PyExc_AssertionError, "Method::checkArgs: method[%s] requires exactly %d argument%s%s; %d given", 
 				getName(),
@@ -146,7 +146,7 @@ bool MethodDescription::checkArgs(PyObject* args)
 //-------------------------------------------------------------------------------------
 void MethodDescription::addToStream(MemoryStream* mstream, PyObject* args)
 {
-	uint8 argsSize = argTypes_.size();
+	uint8 argsSize = static_cast<uint8>(argTypes_.size());
 	int offset = 0;
 
 	// 将utype放进去，方便对端识别这个方法
@@ -240,19 +240,6 @@ PyObject* MethodDescription::call(PyObject* func, PyObject* args)
 	}
 
 	if (pyResult) {
-		/*int isAwaitable = PyObject_HasAttrString(pyResult, "__await__");
-		if (isAwaitable > 0) {
-			PyObject* dispatcherMod = PyImport_ImportModule("async_dispatcher");
-			PyObject* submitFunc = PyObject_GetAttrString(dispatcherMod, "submit_coroutine");
-			PyObject* fut = PyObject_CallFunctionObjArgs(submitFunc, pyResult, NULL);
-			if (!fut) {
-				PyErr_PrintEx(0);
-			}
-			Py_XDECREF(fut);
-			Py_XDECREF(dispatcherMod);
-			Py_XDECREF(submitFunc);
-		}*/
-
 		AsyncioHelper::submitCoroutine(pyResult);
 
 	}

@@ -4,14 +4,20 @@
 #include "event_poller.h"
 #include "poller_select.h"
 #include "poller_epoll.h"
+#include "poller_iocp.h"
+#include "poller_kqueue.h"
 #include "helper/profile.h"
 
 namespace KBEngine { 
 namespace Network
 {
 	
-#if KBE_PLATFORM != PLATFORM_WIN32
+#if defined(__linux__)
 #define HAS_EPOLL
+#endif
+
+#if KBE_PLATFORM == PLATFORM_APPLE
+#define HAS_KQUEUE
 #endif
 
 //-------------------------------------------------------------------------------------
@@ -182,11 +188,15 @@ int EventPoller::maxFD() const
 //-------------------------------------------------------------------------------------
 EventPoller * EventPoller::create()
 {
-#ifdef HAS_EPOLL
+#if KBE_PLATFORM == PLATFORM_WIN32
+	return new IocpPoller();
+#elif defined(HAS_EPOLL)
 	return new EpollPoller();
+#elif defined(HAS_KQUEUE)
+	return new KqueuePoller();
 #else
 	return new SelectPoller();
-#endif // HAS_EPOLL
+#endif
 }
 
 }

@@ -126,8 +126,6 @@ public:
 	PY_CALLBACKMGR& callbackMgr() { return pyCallbackMgr_; }
 
 protected:
-	// python解释器保活
-	ScriptTimers											asyncTimerTimers_;
 	TimerHandle																mainProcessTimer_;
 
 	// 订单

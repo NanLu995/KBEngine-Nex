@@ -56,9 +56,31 @@
 
 using namespace KBEngine;
 
+namespace
+{
+void installBotsCrashTestEnv(int argc, char* argv[])
+{
+	for (int i = 1; i < argc; ++i)
+	{
+		std::string cmd = argv[i];
+		const std::string prefix = "--crash-test=";
+		const std::string::size_type pos = cmd.find(prefix);
+		if (pos == std::string::npos)
+			continue;
+
+		std::string crashType = cmd.substr(pos + prefix.size());
+		if (!crashType.empty())
+			setenv("KBE_BOTS_CRASH_TEST", crashType.c_str(), 1);
+
+		return;
+	}
+}
+}
+
 int KBENGINE_MAIN(int argc, char* argv[])
 {
 	g_componentType = BOTS_TYPE;
+	installBotsCrashTestEnv(argc, argv);
 	return kbeMainT<Bots>(argc, argv, g_componentType, -1, -1, -1, -1, "", 0, 0, "");
 }
 

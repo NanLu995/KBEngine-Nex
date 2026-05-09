@@ -40,6 +40,8 @@ SCRIPT_METHOD_DECLARE("values",				values,				METH_VARARGS,		0)
 SCRIPT_METHOD_DECLARE("items",				items,				METH_VARARGS,		0)
 SCRIPT_METHOD_DECLARE("update",				update,				METH_VARARGS,		0)	
 SCRIPT_METHOD_DECLARE("get",				get,				METH_VARARGS,		0)	
+SCRIPT_METHOD_DECLARE("clear",				clear,				METH_VARARGS,		0)
+SCRIPT_METHOD_DECLARE("pop",				pop,				METH_VARARGS,		0)
 SCRIPT_METHOD_DECLARE_END()
 
 SCRIPT_MEMBER_DECLARE_BEGIN(Map)
@@ -63,7 +65,7 @@ Map::~Map()
 }
 
 //-------------------------------------------------------------------------------------
-int Map::mp_length(PyObject* self)
+Py_ssize_t Map::mp_length(PyObject* self)
 {
 	return PyDict_Size(static_cast<Map*>(self)->pyDict_);
 }
@@ -214,6 +216,96 @@ PyObject* Map::__py_update(PyObject* self, PyObject* args)
 
 	Py_DECREF(pyVal);
 	S_Return; 
+}
+
+//-------------------------------------------------------------------------------------
+PyObject* Map::__py_clear(PyObject* self, PyObject* args)
+{
+	Map* lpScriptData = static_cast<Map*>(self);
+
+	PyObject* keys = PyDict_Keys(lpScriptData->pyDict_);
+	if (!keys)
+		return NULL;
+
+	Py_ssize_t n = PyList_Size(keys);
+	for (Py_ssize_t i = 0; i < n; ++i)
+	{
+		PyObject* key = PyList_GetItem(keys, i); // borrowed reference
+		if (!key)
+			continue;
+
+		// Get current value (borrowed)
+		PyObject* value = PyDict_GetItem(lpScriptData->pyDict_, key);
+
+		// Ensure value and key stay alive while we notify and delete
+		if (value) Py_INCREF(value);
+		Py_INCREF(key);
+
+		// Notify deletion for this key
+		lpScriptData->onDataChanged(key, value, true);
+
+		// Delete the item from dict
+		PyDict_DelItem(lpScriptData->pyDict_, key);
+
+		Py_DECREF(key);
+		if (value) Py_DECREF(value);
+	}
+
+	Py_DECREF(keys);
+	S_Return;
+}
+
+//-------------------------------------------------------------------------------------
+PyObject* Map::__py_pop(PyObject* self, PyObject* args)
+{
+	Map* lpScriptData = static_cast<Map*>(self);
+
+	PyObject* pyKey = PySequence_GetItem(args, 0);
+	if (!pyKey)
+	{
+		PyErr_SetObject(PyExc_KeyError, args);
+		return NULL;
+	}
+
+	PyObject* pyObj = PyDict_GetItem(lpScriptData->pyDict_, pyKey); // borrowed
+	
+	if (!pyObj)
+	{
+		Py_DECREF(pyKey);
+		
+		// 如果提供了默认值，返回默认值
+		if (PySequence_Size(args) > 1)
+		{
+			PyObject* pyDefault = PySequence_GetItem(args, 1);
+			return pyDefault;
+		}
+		else
+		{
+			PyErr_SetObject(PyExc_KeyError, pyKey);
+			return NULL;
+		}
+	}
+	else
+	{
+		// Increment to keep value alive across deletion and for returning
+		Py_INCREF(pyObj);
+
+		// Notify deletion with current value
+		lpScriptData->onDataChanged(pyKey, pyObj, true);
+
+		// Delete the item from dict
+		if (PyDict_DelItem(lpScriptData->pyDict_, pyKey) != 0)
+		{
+			// deletion failed
+			Py_DECREF(pyKey);
+			Py_DECREF(pyObj);
+			PyErr_SetObject(PyExc_KeyError, pyKey);
+			return NULL;
+		}
+
+		Py_DECREF(pyKey);
+		return pyObj;
+	}
 }
 
 //-------------------------------------------------------------------------------------

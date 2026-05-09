@@ -23,7 +23,7 @@ export default class NetworkInterface
         catch(e)
         {
             KBELog.ERROR_MSG("NetworkInterface::Connect:Init socket error:" + e);
-            KBEEvent.Fire("onConnectionState", false);
+            KBEEvent.fireAll("onConnectionState", false);
             return;
         }
 
@@ -89,7 +89,7 @@ export default class NetworkInterface
     private onerror = (event: Event) =>
     {
         KBELog.DEBUG_MSG("NetworkInterface::onerror:...!");
-        KBEEvent.Fire("onNetworkError", event as MessageEvent);
+        KBEEvent.fireIn("onNetworkError", event as MessageEvent);
     }
 
     private onmessage = (event: MessageEvent) =>
@@ -134,6 +134,6 @@ export default class NetworkInterface
     private onclose = () =>
     {
         KBELog.DEBUG_MSG("NetworkInterface::onclose:...!");
-        KBEEvent.Fire("onDisconnected");
+        KBEEvent.fireAll("onDisconnected");
     }
 }

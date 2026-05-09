@@ -65,7 +65,7 @@ double CLine::GetPointY(int nIndex)
 }
 int CLine::GetPointCount()
 {
-	return (int)m_dXValue.size();
+	return static_cast<int>(m_dXValue.size());
 }
 void CLine::RemoveAllPoints()
 {
@@ -308,7 +308,7 @@ CLine& CLineChartCtrl::GetLine(int nIndex)
 }
 int CLineChartCtrl::GetLineCount()
 {
-	return (int)m_lines.size();
+	return static_cast<int>(m_lines.size());
 }
 //
 void CLineChartCtrl::SetRate(int nRate)

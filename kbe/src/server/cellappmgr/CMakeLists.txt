@@ -39,7 +39,9 @@ target_compile_definitions(cellappmgr PUBLIC  LOG4CXX_STATIC)
 
 # ---------------- Python ----------------
 target_link_libraries(cellappmgr PRIVATE python_interface)
-target_link_options(cellappmgr PRIVATE -Wl,-export-dynamic)
+if(NOT APPLE)
+    target_link_options(cellappmgr PRIVATE -Wl,-export-dynamic)
+endif()
 
 # ---------------- OpenSSL ----------------
 target_link_libraries(cellappmgr PRIVATE KBEOpenSSL::SSL)

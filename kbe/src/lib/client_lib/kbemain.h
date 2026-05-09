@@ -15,6 +15,9 @@
 #include "resmgr/resmgr.h"
 #include "client_lib/config.h"
 #include "entitydef/entity_component.h"
+#if KBE_PLATFORM == PLATFORM_WIN32
+#include "helper/crashhandler.h"
+#endif
 
 namespace KBEngine{
 
@@ -248,6 +251,9 @@ int kbeMainT(int argc, char * argv[], COMPONENT_TYPE componentType,
 		return -1;
 	}
 	
+#if KBE_PLATFORM == PLATFORM_WIN32
+	KBEngine::exception::installCrashHandler(COMPONENT_NAME_EX(componentType), g_componentID);
+#endif
 	DebugHelper::initialize(componentType);
 	INFO_MSG( "-----------------------------------------------------------------------------------------\n\n\n");
 
@@ -290,6 +296,20 @@ int kbeMainT(int argc, char * argv[], COMPONENT_TYPE componentType,
 	return ret;
 }
 
+#if KBE_PLATFORM == PLATFORM_WIN32
+#define KBENGINE_MAIN																									\
+kbeMain(int argc, char* argv[]);																						\
+int main(int argc, char* argv[])																						\
+{																														\
+	KBEngine::exception::installCrashHandler("bootstrap", g_componentID);												\
+	int retcode = -1;																									\
+	THREAD_TRY_EXECUTION;																								\
+	retcode = kbeMain(argc, argv);																						\
+	THREAD_HANDLE_CRASH;																								\
+	return retcode;																										\
+}																														\
+int kbeMain
+#else
 #define KBENGINE_MAIN																									\
 kbeMain(int argc, char* argv[]);																						\
 int main(int argc, char* argv[])																						\
@@ -297,6 +317,7 @@ int main(int argc, char* argv[])																						\
 	return kbeMain(argc, argv);																							\
 }																														\
 int kbeMain
+#endif
 
 }
 

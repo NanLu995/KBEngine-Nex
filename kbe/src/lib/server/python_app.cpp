@@ -2,6 +2,7 @@
 
 
 #include "python_app.h"
+#include "asyncio_helper.h"
 #include "pyscript/py_memorystream.h"
 #include "server/py_file_descriptor.h"
 
@@ -85,6 +86,10 @@ bool PythonApp::initializeEnd()
 {
 	gameTickTimerHandle_ = this->dispatcher().addTimer(1000000 / g_kbeSrvConfig.gameUpdateHertz(), this,
 		reinterpret_cast<void *>(TIMEOUT_GAME_TICK));
+
+	// PythonApp类组件在主线程安装asyncio timer，用来周期性推进协程。
+	if (!AsyncioHelper::installTimer(&scriptTimers_))
+		return false;
 	
 	return true;
 }
@@ -104,6 +109,10 @@ void PythonApp::onShutdownEnd()
 //-------------------------------------------------------------------------------------
 void PythonApp::finalise(void)
 {
+	// 先关闭asyncio，取消未完成协程，避免卸载Python脚本时仍有Task持有对象。
+	AsyncioHelper::shutdown();
+
+	// 再取消普通脚本timer并释放Python脚本环境。
 	gameTickTimerHandle_.cancel();
 	scriptTimers_.cancelAll();
 	ScriptTimers::finalise(*this);
@@ -369,7 +378,7 @@ PyObject* PythonApp::__py_getAppPublish(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_setScriptLogType(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::scriptLogType(): args error!");
@@ -393,7 +402,7 @@ PyObject* PythonApp::__py_setScriptLogType(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_getResFullPath(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::getResFullPath(): args error!");
@@ -420,7 +429,7 @@ PyObject* PythonApp::__py_getResFullPath(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_hasRes(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::hasRes(): args error!");
@@ -443,7 +452,7 @@ PyObject* PythonApp::__py_hasRes(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_kbeOpen(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 2)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::open(): args error!");
@@ -484,7 +493,7 @@ PyObject* PythonApp::__py_kbeOpen(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_matchPath(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::matchPath(): args error!");
@@ -508,7 +517,7 @@ PyObject* PythonApp::__py_matchPath(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* PythonApp::__py_listPathRes(PyObject* self, PyObject* args)
 {
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount < 1 || argCount > 2)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::listPathRes(): args[path, pathargs=\'*.*\'] error!");
@@ -621,7 +630,7 @@ PyObject* PythonApp::__py_listPathRes(PyObject* self, PyObject* args)
 
 	std::vector<std::wstring> results;
 	Resmgr::getSingleton().listPathRes(respath, wExtendName, results);
-	PyObject* pyresults = PyTuple_New(results.size());
+	PyObject* pyresults = PyTuple_New(static_cast<Py_ssize_t>(results.size()));
 
 	std::vector<std::wstring>::iterator iter = results.begin();
 	int i = 0;

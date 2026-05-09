@@ -108,9 +108,12 @@ namespace KBEngine
         if (!navHandle_)
             return false;
 
+        KBE_ASSERT(navHandle_->type() == NavigationHandle::NAV_MESH);
+        NavMeshHandle* navMeshHandle = static_cast<NavMeshHandle*>(navHandle_.get());
+
         straightPath_.clear();
 
-        int n = navHandle_->findStraightPath(
+        int n = navMeshHandle->findStraightPath(
             layer_,
             currPos,
             destPos_,
@@ -123,7 +126,7 @@ namespace KBEngine
         pathValid_ = true;
 
         // 初始化 polyRef
-        polyRef_ = navHandle_->findNearestPoly(layer_, currPos, nullptr);
+        polyRef_ = navMeshHandle->findNearestPoly(layer_, currPos, nullptr);
         return polyRef_ != NavMeshHandle::INVALID_NAVMESH_POLYREF;
     }
 
@@ -171,6 +174,7 @@ namespace KBEngine
 
     //-------------------------------------------------------------------------------------
     bool NavigateHandler::stepMoveOnceWithoutDelete() {
+        
         if (!useDetour_)
             return MoveToPointHandler::stepMoveOnceWithoutDelete();
 
@@ -185,6 +189,15 @@ namespace KBEngine
             requestMoveFailure();
             return false;
         }
+        
+        if ( useDetour_ && navHandle_->type() == NavigationHandle::NAV_TILE)
+        {
+            ERROR_MSG("navigateToDetour does not support 2D.");
+            return false;
+        }
+
+        NavMeshHandle* navMeshHandle = static_cast<NavMeshHandle*>(navHandle_.get());
+        
 
 
         Entity* pEntity = pController_->pEntity();
@@ -192,6 +205,8 @@ namespace KBEngine
 
         Position3D currPos = pEntity->position();
         Position3D oldPos = currPos;
+        
+        pEntity->isOnNavigate(true);
 
         // 建路
         if (!pathValid_)
@@ -203,7 +218,7 @@ namespace KBEngine
                 if (retryCount_ > 5)
                 {
                     requestMoveFailure();
-                    pEntity->isOnNavigate(false);
+                    // pEntity->isOnNavigate(false);
                     Py_DECREF(pEntity);
                     return false;
                 }
@@ -217,7 +232,7 @@ namespace KBEngine
         if (straightPath_.empty())
         {
             requestMoveOver(oldPos);
-            pEntity->isOnNavigate(false);
+            // pEntity->isOnNavigate(false);
             Py_DECREF(pEntity);
             return false;
         }
@@ -265,7 +280,7 @@ namespace KBEngine
             if (currentPathIndex_ >= (int)straightPath_.size())
             {
                 requestMoveOver(currPos);
-                pEntity->isOnNavigate(false);
+                // pEntity->isOnNavigate(false);
                 Py_DECREF(pEntity);
                 return false;
             }
@@ -303,7 +318,7 @@ namespace KBEngine
         // 3. moveAlongSurface
         // -----------------------------
         Position3D nextPos;
-        bool moved = navHandle_->moveAlongSurface(
+        bool moved = navMeshHandle->moveAlongSurface(
             layer_,
             polyRef_,
             currPos,
@@ -319,7 +334,7 @@ namespace KBEngine
                 ERROR_MSG("NavigateHandler::update: move failed too many times\n");
 
                 requestMoveFailure();
-                pEntity->isOnNavigate(false);
+                // pEntity->isOnNavigate(false);
                 Py_DECREF(pEntity);
                 return false;
             }
@@ -329,7 +344,7 @@ namespace KBEngine
             return true;
         }
 
-        float h = navHandle_->getPolyHeight(layer_, polyRef_, nextPos);
+        float h = navMeshHandle->getPolyHeight(layer_, polyRef_, nextPos);
 
         if (h <= -FLT_MAX) // 或你引擎里的无效值判断
         {
@@ -352,8 +367,7 @@ namespace KBEngine
         if (!isDestroyed_)
             pEntity->isOnGround(true);
 
-        if (!isDestroyed_)
-            pEntity->isOnNavigate(true);
+        
 
         //pEntity->isOnGround(true);
         if (!isDestroyed_)
@@ -366,7 +380,7 @@ namespace KBEngine
         if (isDestroyed_ || sqrDistToDest <= distance_ * distance_)
         {
 
-            pEntity->isOnNavigate(false);
+            // pEntity->isOnNavigate(false);
             requestMoveOver(nextPos);
             Py_DECREF(pEntity);
             return false;

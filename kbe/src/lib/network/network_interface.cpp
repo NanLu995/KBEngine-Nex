@@ -134,6 +134,30 @@ void NetworkInterface::closeSocket()
 }
 
 //-------------------------------------------------------------------------------------
+void NetworkInterface::cleanupDestroyedChannel(ChannelMap::iterator iter)
+{
+	Channel* pChannel = iter->second;
+	channelMap_.erase(iter);
+
+	if (pChannel == NULL)
+	{
+		return;
+	}
+
+	if (pChannel->isExternal())
+	{
+		--numExtChannels_;
+	}
+
+	if (pChannelDeregisterHandler_)
+	{
+		pChannelDeregisterHandler_->onChannelDeregister(pChannel);
+	}
+
+	Network::Channel::reclaimPoolObject(pChannel);
+}
+
+//-------------------------------------------------------------------------------------
 bool NetworkInterface::initialize(const char* pEndPointName, uint16 listeningPort_min, uint16 listeningPort_max,
 										const char * listeningInterface, EndPoint* pEP, ListenerReceiver* pLR, uint32 rbuffer, 
 										uint32 wbuffer)
@@ -167,8 +191,6 @@ bool NetworkInterface::initialize(const char* pEndPointName, uint16 listeningPor
 	
 	if (listeningPort_min > 0 && listeningPort_min == listeningPort_max)
 		pEP->setreuseaddr(true);
-	
-	this->dispatcher().registerReadFileDescriptor(*pEP, pLR);
 	
 	u_int32_t ifIPAddr = INADDR_ANY;
 
@@ -292,6 +314,11 @@ bool NetworkInterface::initialize(const char* pEndPointName, uint16 listeningPor
 		}
 	}
 
+	// Windows IOCP 会通过 SO_ACCEPTCONN 区分 listener 和普通 TCP socket。
+	// 因此 TCP endpoint 必须 listen() 成功后再注册读事件，否则 listener
+	// 会被误判为普通 TCP，导致组件发现/注册阶段连接失败。
+	this->dispatcher().registerReadFileDescriptor(*pEP, pLR);
+
 	INFO_MSG(fmt::format("NetworkInterface::initialize({}): address {}, SOMAXCONN={}.\n", 
 		pEndPointName, address.c_str(), backlog));
 
@@ -324,7 +351,18 @@ Channel * NetworkInterface::findChannel(const Address & addr)
 		return NULL;
 
 	ChannelMap::iterator iter = channelMap_.find(addr);
-	Channel * pChannel = (iter != channelMap_.end()) ? iter->second : NULL;
+	if (iter == channelMap_.end())
+	{
+		return NULL;
+	}
+
+	Channel * pChannel = iter->second;
+	if (pChannel != NULL && pChannel->isDestroyed())
+	{
+		cleanupDestroyedChannel(iter);
+		return NULL;
+	}
+
 	return pChannel;
 }
 
@@ -352,9 +390,31 @@ bool NetworkInterface::registerChannel(Channel* pChannel)
 
 	if(pExisting)
 	{
-		CRITICAL_MSG(fmt::format("NetworkInterface::registerChannel: channel {} is exist.\n",
-		pChannel->c_str()));
-		return false;
+		const bool existingEndpointInvalid = pExisting->pEndPoint() == NULL || !pExisting->pEndPoint()->good();
+		const bool existingClosing = pExisting->isDestroyed() || pExisting->condemn() > 0 || existingEndpointInvalid;
+
+		if (!existingClosing)
+		{
+			CRITICAL_MSG(fmt::format("NetworkInterface::registerChannel: channel {} is exist.\n",
+			pChannel->c_str()));
+			return false;
+		}
+
+		WARNING_MSG(fmt::format("NetworkInterface::registerChannel: replace stale channel {}, reason={}, destroyed={}, endpointInvalid={}.\n",
+			pExisting->c_str(), pExisting->condemnReason(), pExisting->isDestroyed(), existingEndpointInvalid));
+
+		channelMap_.erase(iter);
+
+		if(pExisting->isExternal())
+			numExtChannels_--;
+
+		if(pChannelDeregisterHandler_)
+		{
+			pChannelDeregisterHandler_->onChannelDeregister(pExisting);
+		}
+
+		pExisting->destroy();
+		Network::Channel::reclaimPoolObject(pExisting);
 	}
 
 	channelMap_[addr] = pChannel;
@@ -438,7 +498,8 @@ void NetworkInterface::processChannels(KBEngine::Network::MessageHandlers* pMsgH
 
 		if(pChannel->isDestroyed())
 		{
-			++iter;
+			ChannelMap::iterator current = iter++;
+			cleanupDestroyedChannel(current);
 		}
 		else if(pChannel->condemn() > 0)
 		{

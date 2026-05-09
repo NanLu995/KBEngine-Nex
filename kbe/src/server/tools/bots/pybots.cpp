@@ -55,7 +55,7 @@ PyBots::~PyBots()
 //-------------------------------------------------------------------------------------
 int PyBots::mp_length(PyObject * self)
 {
-	return (int)Bots::getSingleton().clients().size();
+	return static_cast<int>(Bots::getSingleton().clients().size());
 }
 	
 //-------------------------------------------------------------------------------------

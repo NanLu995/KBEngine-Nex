@@ -8,7 +8,14 @@
 #include <utility>
 #include <functional>
 #include <cctype>
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4244)
+#endif
 #include "utf8cpp/utf8.h"
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 #include "memorystream.h"
 
 #include <codecvt>
@@ -84,13 +91,15 @@ namespace strutil {
 
 	std::string &kbe_ltrim(std::string &s) 
 	{
-		s.erase(s.begin(), std::find_if(s.begin(), s.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
+		s.erase(s.begin(), std::find_if(s.begin(), s.end(),
+			[](unsigned char ch) { return !std::isspace(ch); }));
 		return s;
 	}
 
 	std::string &kbe_rtrim(std::string &s) 
 	{
-		s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
+		s.erase(std::find_if(s.rbegin(), s.rend(),
+			[](unsigned char ch) { return !std::isspace(ch); }).base(), s.end());
 		return s;
 	}
 
@@ -230,7 +239,7 @@ namespace strutil {
 	{
 		if (delim.empty()) {
 			out_result.push_back(s);
-			return out_result.size();
+			return static_cast<int>(out_result.size());
 		}
 
 		std::string::const_iterator substart = s.begin(), subend;
@@ -247,7 +256,7 @@ namespace strutil {
 			substart = subend + delim.size();
 		}
 
-		return out_result.size();
+		return static_cast<int>(out_result.size());
 	}
 
 	char* wchar2char(const wchar_t* ts, size_t* outlen)
@@ -271,13 +280,15 @@ namespace strutil {
 
 	void wchar2char(const wchar_t* ts, MemoryStream* pOutStream)
 	{
-		int len = (int)((wcslen(ts) + 1) * sizeof(wchar_t));
+		size_t len = (wcslen(ts) + 1) * sizeof(wchar_t);
 		pOutStream->data_resize(pOutStream->wpos() + len);
 		size_t slen = wcstombs((char*)&pOutStream->data()[pOutStream->wpos()], ts, len);
 		
 		if((size_t)-1 != slen)
 		{
-			pOutStream->wpos(pOutStream->wpos() + slen + 1);
+			size_t newWpos = pOutStream->wpos() + slen + 1;
+			KBE_ASSERT(newWpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+			pOutStream->wpos(static_cast<int>(newWpos));
 			pOutStream->data()[pOutStream->wpos() - 1] = 0;
 		}
 	};
@@ -423,7 +434,7 @@ namespace strutil {
 			return utf8::distance(utf8str.c_str(), 
 				utf8str.c_str() + utf8str.size());
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			utf8str = "";
 			return 0;
@@ -450,7 +461,7 @@ namespace strutil {
 
 			utf8str.resize(oend - (&utf8str[0]));
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			utf8str = "";
 		}
@@ -475,7 +486,7 @@ namespace strutil {
 			utf8::utf8to16(utf8str, utf8str + csize, wstr);
 			wstr[len] = L'\0';
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			if (wsize > 0)
 				wstr[0] = L'\0';
@@ -498,7 +509,7 @@ namespace strutil {
 				utf8::utf8to16(utf8str.c_str(), 
 				utf8str.c_str() + utf8str.size(), &wstr[0]);
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			wstr = L"";
 			return false;
@@ -518,7 +529,7 @@ namespace strutil {
 			utf8str2.resize(oend - (&utf8str2[0]));             // remove unused tail
 			utf8str = utf8str2;
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			utf8str = "";
 			return false;
@@ -540,7 +551,7 @@ namespace strutil {
 			utf8str2.resize(oend - (&utf8str2[0]));             // remove unused tail
 			utf8str = utf8str2;
 		}
-		catch (std::exception& e)
+		catch (std::exception&)
 		{
 			utf8str = "";
 			return false;

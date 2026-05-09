@@ -14,6 +14,8 @@
 #include "client_lib/client_interface.h"
 #include "common/kbeversion.h"
 
+#include <algorithm>
+
 #include "baseapp/baseapp_interface.h"
 #include "cellapp/cellapp_interface.h"
 #include "baseappmgr/baseappmgr_interface.h"
@@ -66,11 +68,8 @@ void ClientObject::finalise(void)
 //-------------------------------------------------------------------------------------		
 void ClientObject::reset(void)
 {
-	if(pTCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pTCPPacketReceiverEx_->pEndPoint());
-
-	if (pTCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pTCPPacketReceiverEx_->pEndPoint());
+	deregisterReceiverEndPoint(pTCPPacketReceiverEx_);
+	deregisterReceiverEndPoint(pKCPPacketReceiverEx_);
 
 	if(pServerChannel_ && pServerChannel_->pEndPoint())
 	{
@@ -101,13 +100,73 @@ void ClientObject::reset(void)
 	connectedBaseapp_ = false;
 }
 
+void ClientObject::onNetworkError(const std::string& err)
+{
+	DEBUG_MSG(fmt::format("ClientObject::onNetworkError: {} state={} err={}\n",
+		name_, static_cast<int>(state_), err));
+
+	deregisterReceiverEndPoint(pTCPPacketReceiverEx_, true);
+	deregisterReceiverEndPoint(pKCPPacketReceiverEx_, true);
+
+	if (pServerChannel_ != NULL && !pServerChannel_->isDestroyed())
+	{
+		pServerChannel_->destroy();
+		return;
+	}
+
+	destroy();
+}
+
+void ClientObject::deregisterReceiverEndPoint(Network::PacketReceiver* pPacketReceiver, bool detachEndPoint)
+{
+	if (pPacketReceiver == NULL || pPacketReceiver->pEndPoint() == NULL)
+	{
+		return;
+	}
+
+	Network::EndPoint* pEndPoint = pPacketReceiver->pEndPoint();
+	if (pEndPoint->good())
+	{
+		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pEndPoint);
+	}
+
+	if (detachEndPoint)
+	{
+		pPacketReceiver->pEndPoint(NULL);
+	}
+}
+
+void ClientObject::sendBaseappActiveTick(bool force)
+{
+	if (!connectedBaseapp_ || pServerChannel_ == NULL || pServerChannel_->pEndPoint() == NULL ||
+		pServerChannel_->isDestroyed() || pServerChannel_->condemn() > 0)
+	{
+		return;
+	}
+
+	uint64 interval = stampsPerSecond() * 10;
+	if (Network::g_channelExternalTimeout > 0.f)
+	{
+		interval = KBE_MAX<uint64>(stampsPerSecond(), uint64(Network::g_channelExternalTimeout * stampsPerSecond()) / 4);
+		interval = KBE_MIN<uint64>(interval, stampsPerSecond() * 10);
+	}
+
+	if (!force && timestamp() - lastSentActiveTickTime_ < interval)
+	{
+		return;
+	}
+
+	lastSentActiveTickTime_ = timestamp();
+
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject(OBJECTPOOL_POINT);
+	(*pBundle).newMessage(BaseappInterface::onClientActiveTick);
+	pServerChannel_->send(pBundle);
+}
+
 void ClientObject::clearStates(void)
 {
-	if (pTCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pTCPPacketReceiverEx_->pEndPoint());
-
-	if (pKCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pKCPPacketReceiverEx_->pEndPoint());
+	deregisterReceiverEndPoint(pTCPPacketReceiverEx_);
+	deregisterReceiverEndPoint(pKCPPacketReceiverEx_);
 
 	pServerChannel_->fina_kcp();
 	pServerChannel_->stopSend();
@@ -210,11 +269,8 @@ bool ClientObject::initLoginBaseapp()
 {
 	clearStates();
 
-	if(pTCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pTCPPacketReceiverEx_->pEndPoint());
-
-	if (pKCPPacketReceiverEx_)
-		Bots::getSingleton().networkInterface().dispatcher().deregisterReadFileDescriptor(*pKCPPacketReceiverEx_->pEndPoint());
+	deregisterReceiverEndPoint(pTCPPacketReceiverEx_);
+	deregisterReceiverEndPoint(pKCPPacketReceiverEx_);
 
 	pServerChannel_->fina_kcp();
 	pServerChannel_->stopSend();
@@ -253,7 +309,7 @@ bool ClientObject::initLoginBaseapp()
 		pUdpEndpoint->setnonblocking(true);
 		pUdpEndpoint->setnodelay(true);
 
-		if (pUdpEndpoint->sendto((void*)Network::UDP_HELLO, strlen(Network::UDP_HELLO)) != -1)
+		if (pUdpEndpoint->sendto((void*)Network::UDP_HELLO, static_cast<int>(strlen(Network::UDP_HELLO))) != -1)
 		{
 			// 等待接收返回包
 			Network::UDPPacket* pHelloAckUDPPacket = Network::UDPPacket::createPoolObject(OBJECTPOOL_POINT);
@@ -268,7 +324,7 @@ bool ClientObject::initLoginBaseapp()
 			}
 
 			sockaddr_in remoteAddr;
-			int bytes_rcvd = pUdpEndpoint->recvfrom(pHelloAckUDPPacket->data(), pHelloAckUDPPacket->size(), remoteAddr);
+			int bytes_rcvd = pUdpEndpoint->recvfrom(pHelloAckUDPPacket->data(), static_cast<int>(pHelloAckUDPPacket->size()), remoteAddr);
 			if (bytes_rcvd > 0)
 			{
 				std::string helloAck, versionString;
@@ -486,7 +542,7 @@ void ClientObject::gameTick()
 
 			break;
 		case C_STATE_PLAY:
-			break;	
+			break;
 		case C_STATE_DESTROYED:
 			return;
 		default:
@@ -494,6 +550,7 @@ void ClientObject::gameTick()
 			break;
 	};
 
+	sendBaseappActiveTick(false);
 	tickSend();
 }
 
@@ -514,6 +571,8 @@ void ClientObject::onHelloCB_(Network::Channel* pChannel, const std::string& ver
 	}
 	else
 	{
+		connectedBaseapp_ = true;
+		sendBaseappActiveTick(true);
 		state_ = C_STATE_LOGIN_BASEAPP;
 	}
 }

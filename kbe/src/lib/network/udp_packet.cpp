@@ -9,10 +9,19 @@
 #include "network/endpoint.h"
 #include "network/network_interface.h"
 #include "network/message_handler.h"
+#include <limits>
 
 namespace KBEngine { 
 namespace Network
 {
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+}
 //-------------------------------------------------------------------------------------
 static ObjectPool<UDPPacket> _g_objPool("UDPPacket");
 ObjectPool<UDPPacket>& UDPPacket::ObjPool()
@@ -79,11 +88,11 @@ int UDPPacket::recvFromEndPoint(EndPoint & ep, Address* pAddr)
 	KBE_ASSERT(maxBufferSize() > wpos());
 
 	// 当接收来的大小大于接收缓冲区的时候，recvfrom返回-1
-	int len = ep.recvfrom(data() + wpos(), size() - wpos(),
+	int len = ep.recvfrom(data() + wpos(), toIntSize(size() - wpos()),
 		(u_int16_t*)&pAddr->port, (u_int32_t*)&pAddr->ip);
 
 	if(len > 0)
-		wpos(wpos() + len);
+		wpos(toIntSize(wpos() + len));
 
 	return len;
 }

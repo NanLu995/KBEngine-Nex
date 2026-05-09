@@ -43,8 +43,12 @@ int PacketReceiver::handleInputNotification(int fd)
 {
 	if (this->processRecv(true))
 	{
-		while (this->processRecv(false))
+		while (pEndpoint_ != NULL)
 		{
+			if (!this->processRecv(false))
+			{
+				break;
+			}
 		}
 	}
 

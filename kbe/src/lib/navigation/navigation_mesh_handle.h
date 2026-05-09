@@ -95,7 +95,7 @@ namespace KBEngine {
 			int layer,
 			const Position3D& pos,
 			Position3D* nearestPt = nullptr
-		) override;
+		);
 
 		/**
 		* 沿 navmesh 表面从起点朝目标点移动，返回一个合法的落点。
@@ -134,7 +134,7 @@ namespace KBEngine {
 			const Position3D& start,
 			const Position3D& end,
 			Position3D& outPos
-		) override;
+		);
 
 		/**
 		* 根据指定 polygon，计算某点在 navmesh 上的正确高度（y 值）。
@@ -163,7 +163,7 @@ namespace KBEngine {
 			int layer,
 			dtPolyRef poly,
 			const Position3D& pos
-		) override;
+		);
 
 		std::map<int, NavmeshLayer> navmeshLayer;
 

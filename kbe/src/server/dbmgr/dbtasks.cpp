@@ -536,7 +536,7 @@ bool DBTaskEntityAutoLoad::db_thread_process()
 //-------------------------------------------------------------------------------------
 thread::TPTask::TPTaskState DBTaskEntityAutoLoad::presentMainThread()
 {
-	int size = (int)outs_.size();
+	int size = static_cast<int>(outs_.size());
 	ScriptDefModule* pModule = EntityDef::findScriptModule(entityType_);
 
 	if(size > 0)
@@ -1421,7 +1421,7 @@ thread::TPTask::TPTaskState DBTaskQueryAccount::presentMainThread()
 
 	if(success_)
 	{
-		pBundle->appendBlob(bindatas_.data(), bindatas_.length());
+		pBundle->appendBlob(bindatas_.data(), static_cast<ArraySize>(bindatas_.length()));
 		pBundle->append(s_);
 	}
 	else

@@ -32,7 +32,9 @@ target_compile_definitions(baseappmgr PUBLIC  LOG4CXX_STATIC)
 
 # ---------------- Python ----------------
 target_link_libraries(baseappmgr PRIVATE python_interface)
-target_link_options(baseappmgr PRIVATE -Wl,-export-dynamic)
+if(NOT APPLE)
+    target_link_options(baseappmgr PRIVATE -Wl,-export-dynamic)
+endif()
 
 # ---------------- OpenSSL ----------------
 target_link_libraries(baseappmgr PRIVATE KBEOpenSSL::SSL)

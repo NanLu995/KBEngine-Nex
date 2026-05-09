@@ -16,6 +16,20 @@ KBE_SINGLETON_INIT(KBEngine::thread::ThreadPool);
 
 namespace thread
 {
+namespace
+{
+#if KBE_PLATFORM == PLATFORM_WIN32
+inline uintptr_t threadIdToLogValue(THREAD_ID tid)
+{
+	return reinterpret_cast<uintptr_t>(tid);
+}
+#else
+inline uintptr_t threadIdToLogValue(THREAD_ID tid)
+{
+	return reinterpret_cast<uintptr_t>(tid);
+}
+#endif
+}
 
 int ThreadPool::timeout = 300;
 
@@ -172,7 +186,7 @@ void ThreadPool::destroy()
 		std::string taskaddrs = "";
 		THREAD_MUTEX_LOCK(threadStateList_mutex_);
 
-		int count = (int)allThreadList_.size();
+		int count = static_cast<int>(allThreadList_.size());
 		std::list<TPThread*>::iterator itr = allThreadList_.begin();
 		for(; itr != allThreadList_.end(); ++itr)
 		{
@@ -425,7 +439,7 @@ bool ThreadPool::addFreeThread(TPThread* tptd)
 		THREAD_MUTEX_UNLOCK(threadStateList_mutex_);
 
 		ERROR_MSG(fmt::format("ThreadPool::addFreeThread: busyThreadList_ not found thread.{0}\n",
-		 (uint32)tptd->id()));
+		 threadIdToLogValue(tptd->id())));
 		
 		delete tptd;
 		return false;
@@ -453,7 +467,7 @@ bool ThreadPool::addBusyThread(TPThread* tptd)
 		THREAD_MUTEX_UNLOCK(threadStateList_mutex_);
 		ERROR_MSG(fmt::format("ThreadPool::addBusyThread: freeThreadList_ not "
 				"found thread.{0}\n",
-					(uint32)tptd->id()));
+					threadIdToLogValue(tptd->id())));
 		
 		delete tptd;
 		return false;
@@ -483,7 +497,7 @@ bool ThreadPool::removeHangThread(TPThread* tptd)
 
 		INFO_MSG(fmt::format("ThreadPool::removeHangThread: thread.{0} is destroy. "
 			"currentFreeThreadCount:{1}, currentThreadCount:{2}\n",
-		(uint32)tptd->id(), currentFreeThreadCount_, currentThreadCount_));
+		threadIdToLogValue(tptd->id()), currentFreeThreadCount_, currentThreadCount_));
 		
 		SAFE_RELEASE(tptd);
 	}
@@ -492,7 +506,7 @@ bool ThreadPool::removeHangThread(TPThread* tptd)
 		THREAD_MUTEX_UNLOCK(threadStateList_mutex_);		
 		
 		ERROR_MSG(fmt::format("ThreadPool::removeHangThread: not found thread.{0}\n", 
-			(uint32)tptd->id()));
+			threadIdToLogValue(tptd->id())));
 		
 		return false;
 	}

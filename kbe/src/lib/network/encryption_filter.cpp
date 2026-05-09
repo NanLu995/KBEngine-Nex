@@ -9,10 +9,19 @@
 #include "network/network_interface.h"
 #include "network/packet_receiver.h"
 #include "network/packet_sender.h"
+#include <limits>
 
 namespace KBEngine { 
 namespace Network
 {
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+}
 
 //-------------------------------------------------------------------------------------
 BlowfishFilter::BlowfishFilter(const Key & key):
@@ -147,7 +156,7 @@ Reason BlowfishFilter::recv(Channel * pChannel, PacketReceiver & receiver, Packe
 				if(pPacket->length() > packetLen_)
 				{
 					MALLOC_PACKET(pPacket_, pPacket->isTCPPacket());
-					int currLen = pPacket->rpos() + packetLen_;
+					int currLen = toIntSize(pPacket->rpos() + packetLen_);
 					pPacket_->append(pPacket->data() + currLen, pPacket->wpos() - currLen);
 					pPacket->wpos(currLen);
 				}
@@ -179,7 +188,7 @@ Reason BlowfishFilter::recv(Channel * pChannel, PacketReceiver & receiver, Packe
 			if(pPacket->length() > packetLen_)
 			{
 				MALLOC_PACKET(pPacket_, pPacket->isTCPPacket());
-				int currLen = pPacket->rpos() + packetLen_;
+				int currLen = toIntSize(pPacket->rpos() + packetLen_);
 				pPacket_->append(pPacket->data() + currLen, pPacket->wpos() - currLen);
 				pPacket->wpos(currLen);
 			}

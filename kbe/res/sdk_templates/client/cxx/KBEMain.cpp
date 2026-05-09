@@ -148,7 +148,7 @@ bool KBEMain::login(KBString username, KBString password, KBArray<uint8> datas)
 	pEventData->username = username;
 	pEventData->password = password;
 	pEventData->datas = datas;
-	KBENGINE_EVENT_FIRE(KBEngine::KBEventTypes::login, pEventData);
+	KBENGINE_EVENT_FIRE_IN(KBEngine::KBEventTypes::login, pEventData);
 	return true;
 }
 
@@ -165,7 +165,7 @@ bool KBEMain::createAccount(KBString username, KBString password, const KBArray<
 	pEventData->username = username;
 	pEventData->password = password;
 	pEventData->datas = datas;
-	KBENGINE_EVENT_FIRE(KBEngine::KBEventTypes::createAccount, pEventData);
+	KBENGINE_EVENT_FIRE_IN(KBEngine::KBEventTypes::createAccount, pEventData);
 	return true;
 }
 
@@ -177,7 +177,7 @@ bool KBEMain::resetPassword(KBString username)
 	}
 	auto pEventData = std::make_shared<UKBEventData_resetPassword>();
 	pEventData->username = username;
-	KBENGINE_EVENT_FIRE(KBEngine::KBEventTypes::resetPassword, pEventData);
+	KBENGINE_EVENT_FIRE_IN(KBEngine::KBEventTypes::resetPassword, pEventData);
 	return true;
 }
 bool KBEMain::bindAccountEmail(KBString email)
@@ -188,7 +188,7 @@ bool KBEMain::bindAccountEmail(KBString email)
 	}
 	auto pEventData = std::make_shared<UKBEventData_bindAccountEmail>();
 	pEventData->email = email;
-	KBENGINE_EVENT_FIRE(KBEngine::KBEventTypes::bindAccountEmail, pEventData);
+	KBENGINE_EVENT_FIRE_IN(KBEngine::KBEventTypes::bindAccountEmail, pEventData);
 	return true;
 }
 bool KBEMain::newPassword(KBString oldPassword, KBString newPassword)
@@ -200,6 +200,6 @@ bool KBEMain::newPassword(KBString oldPassword, KBString newPassword)
 	auto pEventData = std::make_shared<UKBEventData_newPassword>();
 	pEventData->old_password = oldPassword;
 	pEventData->new_password = newPassword;
-	KBENGINE_EVENT_FIRE(KBEngine::KBEventTypes::newPassword, pEventData);
+	KBENGINE_EVENT_FIRE_IN(KBEngine::KBEventTypes::newPassword, pEventData);
 	return true;
 }

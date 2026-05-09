@@ -44,7 +44,7 @@ Channel* TCPPacketSenderEx::getChannel()
 //-------------------------------------------------------------------------------------
 void TCPPacketSenderEx::onGetError(Channel* pChannel, const std::string& err)
 {
-	pClientObject_->destroy();
+	pClientObject_->onNetworkError(err);
 }
 
 //-------------------------------------------------------------------------------------

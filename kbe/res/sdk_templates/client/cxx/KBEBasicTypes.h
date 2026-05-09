@@ -6,14 +6,20 @@
 #pragma once
 
 #include <algorithm>
-#include <cstdint>
+#include <cerrno>
+#include <climits>
 #include <cmath>
 #include <codecvt>
-#include <vector>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring> // memcpy
 #include <locale>
 #include <stdexcept>
+#include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 
 #if defined(__UNREAL__) || defined(UE_BUILD_DEBUG) || defined(UE_SERVER) || defined(UE_GAME) || defined(UE_CLIENT) || defined(UE_BUILD_DEVELOPMENT) || defined(UE_BUILD_SHIPPING)

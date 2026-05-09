@@ -18,6 +18,7 @@
 #include "helper/profile.h"
 #include "server/kbemain.h"	
 #include "server/script_timers.h"
+#include "server/asyncio_helper.h"
 #include "server/idallocate.h"
 #include "server/serverconfig.h"
 #include "server/globaldata_client.h"
@@ -229,6 +230,9 @@ protected:
 
 	TimerHandle												gameTimer_;
 
+	// asyncio专用timer容器：第一步保存主线程pump timer，第二步在finalise里统一取消。
+	ScriptTimers											asyncioTimers_;
+
 	// globalData
 	GlobalDataClient*										pGlobalData_;
 
@@ -253,6 +257,7 @@ entryScript_(),
 idClient_(),
 pEntities_(NULL),
 gameTimer_(),
+asyncioTimers_(),
 pGlobalData_(NULL),
 pyCallbackMgr_(),
 lastTimestamp_(timestamp()),
@@ -295,6 +300,9 @@ bool EntityApp<E>::initialize()
 	{
 		gameTimer_ = this->dispatcher().addTimer(1000000 / g_kbeSrvConfig.gameUpdateHertz(), this,
 								reinterpret_cast<void *>(TIMEOUT_GAME_TICK));
+
+		// EntityApp类组件在主线程安装asyncio timer，用来周期性推进协程。
+		ret = AsyncioHelper::installTimer(&asyncioTimers_);
 	}
 
 	lastTimestamp_ = timestamp();
@@ -311,7 +319,12 @@ bool EntityApp<E>::initializeWatcher()
 template<class E>
 void EntityApp<E>::finalise(void)
 {
+	// 先关闭asyncio，取消未完成协程，避免实体和组件卸载时仍被Task持有。
+	AsyncioHelper::shutdown();
+
+	// 再取消游戏timer并继续原有实体清理流程。
 	gameTimer_.cancel();
+	asyncioTimers_.cancelAll();
 
 	WATCH_FINALIZE;
 	
@@ -756,7 +769,7 @@ PyObject* EntityApp<E>::__py_getAppPublish(PyObject* self, PyObject* args)
 template<class E>
 PyObject* EntityApp<E>::__py_getWatcher(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::getWatcher(): args[strpath] error!");
@@ -895,7 +908,7 @@ PyObject* EntityApp<E>::__py_getWatcher(PyObject* self, PyObject* args)
 template<class E>
 PyObject* EntityApp<E>::__py_getWatcherDir(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::getWatcherDir(): args[strpath] error!");
@@ -915,9 +928,9 @@ PyObject* EntityApp<E>::__py_getWatcherDir(PyObject* self, PyObject* args)
 	std::vector<std::string> vec;
 	WatcherPaths::root().dirPath(path, vec);
 
-	PyObject* pyTuple = PyTuple_New(vec.size());
+	PyObject* pyTuple = PyTuple_New(static_cast<Py_ssize_t>(vec.size()));
 	std::vector<std::string>::iterator iter = vec.begin();
-	int i = 0;
+	Py_ssize_t i = 0;
 	for(; iter != vec.end(); ++iter)
 	{
 		PyTuple_SET_ITEM(pyTuple, i++, PyUnicode_FromString((*iter).c_str()));
@@ -929,7 +942,7 @@ PyObject* EntityApp<E>::__py_getWatcherDir(PyObject* self, PyObject* args)
 template<class E>
 PyObject* EntityApp<E>::__py_setScriptLogType(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::scriptLogType(): args error!");
@@ -953,7 +966,7 @@ PyObject* EntityApp<E>::__py_setScriptLogType(PyObject* self, PyObject* args)
 template<class E>
 PyObject* EntityApp<E>::__py_getResFullPath(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::getResFullPath(): args error!");
@@ -980,7 +993,7 @@ PyObject* EntityApp<E>::__py_getResFullPath(PyObject* self, PyObject* args)
 template<class E>
 PyObject* EntityApp<E>::__py_hasRes(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::hasRes(): args error!");
@@ -1003,7 +1016,7 @@ PyObject* EntityApp<E>::__py_hasRes(PyObject* self, PyObject* args)
 template<class E>
 PyObject* EntityApp<E>::__py_kbeOpen(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if (argCount < 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::open(): args error!");
@@ -1057,7 +1070,7 @@ PyObject* EntityApp<E>::__py_kbeOpen(PyObject* self, PyObject* args)
 template<class E>
 PyObject* EntityApp<E>::__py_matchPath(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::matchPath(): args error!");
@@ -1081,7 +1094,7 @@ PyObject* EntityApp<E>::__py_matchPath(PyObject* self, PyObject* args)
 template<class E>
 PyObject* EntityApp<E>::__py_listPathRes(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount < 1 || argCount > 2)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::listPathRes(): args[path, pathargs=\'*.*\'] error!");
@@ -1194,7 +1207,7 @@ PyObject* EntityApp<E>::__py_listPathRes(PyObject* self, PyObject* args)
 
 	std::vector<std::wstring> results;
 	Resmgr::getSingleton().listPathRes(respath, wExtendName, results);
-	PyObject* pyresults = PyTuple_New(results.size());
+	PyObject* pyresults = PyTuple_New(static_cast<Py_ssize_t>(results.size()));
 
 	std::vector<std::wstring>::iterator iter = results.begin();
 	int i = 0;

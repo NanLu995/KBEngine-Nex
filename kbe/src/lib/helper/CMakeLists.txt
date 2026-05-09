@@ -1,5 +1,6 @@
 # ---------------- 源文件 ----------------
 set(SRCS
+    crashhandler.cpp
     debug_helper.cpp
     debug_option.cpp
     eventhistory_stats.cpp

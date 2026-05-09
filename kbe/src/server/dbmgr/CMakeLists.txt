@@ -43,21 +43,13 @@ include_directories(
     ${KBE_ROOT}/kbe/src/lib/dependencies/hiredis
 )
 
-# 调用 mysql_config 获取需要的 flags
-execute_process(
-	COMMAND /usr/bin/mysql_config --libs_r
-	OUTPUT_VARIABLE MYSQL_LIBS
-	OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-# 添加到 dbmgr
-separate_arguments(MYSQL_LIBS UNIX_COMMAND "${MYSQL_LIBS}")
-target_link_libraries(dbmgr PRIVATE ${MYSQL_LIBS})
-
 target_compile_definitions(dbmgr PUBLIC  LOG4CXX_STATIC)
 
 # ---------------- Python ----------------
 target_link_libraries(dbmgr PRIVATE python_interface)
-target_link_options(dbmgr PRIVATE -Wl,-export-dynamic)
+if(NOT APPLE)
+    target_link_options(dbmgr PRIVATE -Wl,-export-dynamic)
+endif()
 
 # ---------------- OpenSSL ----------------
 target_link_libraries(dbmgr PRIVATE KBEOpenSSL::SSL)

@@ -179,8 +179,8 @@ bool ClientSDKTypeScript::saveFile(bool overwrite)
 			return false;
 		}
 
-		int written = fwrite(sourcefileBody_.c_str(), 1, sourcefileBody_.size(), fp);
-		if (written != (int)sourcefileBody_.size())
+		size_t written = fwrite(sourcefileBody_.c_str(), 1, sourcefileBody_.size(), fp);
+		if (written != sourcefileBody_.size())
 		{
 			ERROR_MSG(fmt::format("ClientSDK::saveFile(): fwrite error! {}\n",
 				path));
@@ -1039,9 +1039,9 @@ bool ClientSDKTypeScript::writeEngineMessagesModuleMessage(Network::ExposedMessa
 		//initBody_ += fmt::format("\n\t\t\tList<Byte> {}_argstypes = new List<Byte>();\n", messageInfos.name);
 		initBody_ += fmt::format("\n\t\tlet {}_argstypes: number[] = [];\n", messageInfos.name);
 
-		for (int i = 0; i < (int)messageInfos.argsTypes.size(); ++i)
+		for (size_t i = 0; i < messageInfos.argsTypes.size(); ++i)
 		{
-			int argindex = (i + 1);
+			int argindex = static_cast<int>(i + 1);
 			std::string nativetype = datatype2nativetype(messageInfos.argsTypes[i]);
 
 			KBE_ASSERT(nativetype != "FIXED_DICT" && nativetype != "ARRAY" && nativetype != "PYTHON" && nativetype != "ENTITYCALL");

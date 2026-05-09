@@ -9,7 +9,7 @@ namespace KBEngine {
 //-------------------------------------------------------------------------------------
 KBEBlowfish::KBEBlowfish(const Key & key):
 key_(key),
-keySize_(key.size()),
+keySize_(static_cast<int>(key.size())),
 isGood_(false),
 pBlowFishKey_(NULL)
 {
@@ -28,7 +28,7 @@ KBEBlowfish::KBEBlowfish(int keySize):
 	pBlowFishKey_(NULL)
 {
 	RAND_bytes((unsigned char*)const_cast<char *>(key_.c_str()), 
-		key_.size());
+		static_cast<int>(key_.size()));
 
 	if (this->init())
 	{
@@ -51,7 +51,7 @@ bool KBEBlowfish::init()
 
 	if ((MIN_KEY_SIZE <= keySize_) && (keySize_ <= MAX_KEY_SIZE))
 	{
-		BF_set_key(this->pBlowFishKey(), key_.size(), (unsigned char*)key_.c_str() );
+		BF_set_key(this->pBlowFishKey(), static_cast<int>(key_.size()), (unsigned char*)key_.c_str() );
 		isGood_ = true;
 	}
 	else

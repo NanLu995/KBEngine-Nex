@@ -22,6 +22,8 @@
 #include "EncryptionFilter.h"
 #include "GameThreadDispatcher.h"
 
+#include <chrono>
+
 namespace KBEngine
 {
 
@@ -44,12 +46,12 @@ KBEngineApp::KBEngineApp() :
 	clientVersion_(KBTEXT("")),
 	serverScriptVersion_(KBTEXT("")),
 	clientScriptVersion_(KBTEXT("")),
-	serverProtocolMD5_(KBTEXT("@{KBE_SERVER_PROTO_MD5}")),
-	serverEntitydefMD5_(KBTEXT("@{KBE_SERVER_ENTITYDEF_MD5}")),
+	serverProtocolMD5_(KBTEXT("EB8AE9F114C8797B1E70E1A629686A27")),
+	serverEntitydefMD5_(KBTEXT("46596D3750651E9F679C7775CD577E35")),
 	entity_uuid_(0),
 	entity_id_(0),
 	entity_type_(KBTEXT("")),
-	useAliasEntityID_(@{KBE_USE_ALIAS_ENTITYID}),
+	useAliasEntityID_(true),
 	controlledEntities_(),
 	entityServerPos_(),
 	spacedatas_(),
@@ -64,7 +66,7 @@ KBEngineApp::KBEngineApp() :
 	isLoadedGeometry_(false),
 	component_(KBTEXT("client")),
 	pFilter_(NULL),
-	mainLoop_(nullptr)
+	mainLoopRunning_(false)
 	// ,
 	// pUKBETicker_(nullptr)
 {
@@ -91,12 +93,12 @@ KBEngineApp::KBEngineApp(KBEngineArgs* pArgs):
 	clientVersion_(KBTEXT("")),
 	serverScriptVersion_(KBTEXT("")),
 	clientScriptVersion_(KBTEXT("")),
-	serverProtocolMD5_(KBTEXT("@{KBE_SERVER_PROTO_MD5}")),
-	serverEntitydefMD5_(KBTEXT("@{KBE_SERVER_ENTITYDEF_MD5}")),
+	serverProtocolMD5_(KBTEXT("EB8AE9F114C8797B1E70E1A629686A27")),
+	serverEntitydefMD5_(KBTEXT("46596D3750651E9F679C7775CD577E35")),
 	entity_uuid_(0),
 	entity_id_(0),
 	entity_type_(KBTEXT("")),
-	useAliasEntityID_(@{KBE_USE_ALIAS_ENTITYID}),
+	useAliasEntityID_(true),
 	controlledEntities_(),
 	entityServerPos_(),
 	spacedatas_(),
@@ -111,7 +113,7 @@ KBEngineApp::KBEngineApp(KBEngineArgs* pArgs):
 	isLoadedGeometry_(false),
 	component_(KBTEXT("client")),
 	pFilter_(nullptr),
-	mainLoop_(nullptr)
+	mainLoopRunning_(false)
 	// pUKBETicker_(nullptr)
 {
 	INFO_MSG("KBEngineApp::KBEngineApp(): hello!");
@@ -164,48 +166,48 @@ bool KBEngineApp::initialize(KBEngineArgs* pArgs)
 
 void KBEngineApp::installEvents()
 {
-	KBENGINE_REGISTER_EVENT_OVERRIDE_FUNC(KBEventTypes::login, KBEventTypes::login, [this](std::shared_ptr<UKBEventData> pEventData)
+	KBENGINE_REGISTER_EVENT_IN_OVERRIDE_FUNC(KBEventTypes::login, KBEventTypes::login, [this](std::shared_ptr<UKBEventData> pEventData)
 	{
 		const UKBEventData_login& data = static_cast<const UKBEventData_login&>(*pEventData);
 		login(data.username, data.password, data.datas);
 	});
 
-	KBENGINE_REGISTER_EVENT_OVERRIDE_FUNC(KBEventTypes::logout, KBEventTypes::logout, [this](std::shared_ptr<UKBEventData> pEventData)
+	KBENGINE_REGISTER_EVENT_IN_OVERRIDE_FUNC(KBEventTypes::logout, KBEventTypes::logout, [this](std::shared_ptr<UKBEventData> pEventData)
 	{
 		logout();
 	});
 
-	KBENGINE_REGISTER_EVENT_OVERRIDE_FUNC(KBEventTypes::createAccount, KBEventTypes::createAccount, [this](std::shared_ptr<UKBEventData> pEventData)
+	KBENGINE_REGISTER_EVENT_IN_OVERRIDE_FUNC(KBEventTypes::createAccount, KBEventTypes::createAccount, [this](std::shared_ptr<UKBEventData> pEventData)
 	{
 		const UKBEventData_createAccount& data = static_cast<const UKBEventData_createAccount&>(*pEventData);
 		createAccount(data.username, data.password, data.datas);
 	});
 
-	KBENGINE_REGISTER_EVENT_OVERRIDE_FUNC(KBEventTypes::reloginBaseapp, KBEventTypes::reloginBaseapp, [this](std::shared_ptr<UKBEventData> pEventData)
+	KBENGINE_REGISTER_EVENT_IN_OVERRIDE_FUNC(KBEventTypes::reloginBaseapp, KBEventTypes::reloginBaseapp, [this](std::shared_ptr<UKBEventData> pEventData)
 	{
 		reloginBaseapp();
 	});
 
-	KBENGINE_REGISTER_EVENT_OVERRIDE_FUNC(KBEventTypes::resetPassword, KBEventTypes::resetPassword, [this](std::shared_ptr<UKBEventData> pEventData)
+	KBENGINE_REGISTER_EVENT_IN_OVERRIDE_FUNC(KBEventTypes::resetPassword, KBEventTypes::resetPassword, [this](std::shared_ptr<UKBEventData> pEventData)
 	{
 		const UKBEventData_resetPassword& data = static_cast<const UKBEventData_resetPassword&>(*pEventData);
 		resetPassword(data.username);
 	});
 
-	KBENGINE_REGISTER_EVENT_OVERRIDE_FUNC(KBEventTypes::bindAccountEmail, KBEventTypes::bindAccountEmail, [this](std::shared_ptr<UKBEventData> pEventData)
+	KBENGINE_REGISTER_EVENT_IN_OVERRIDE_FUNC(KBEventTypes::bindAccountEmail, KBEventTypes::bindAccountEmail, [this](std::shared_ptr<UKBEventData> pEventData)
 	{
 		const UKBEventData_bindAccountEmail& data = static_cast<const UKBEventData_bindAccountEmail&>(*pEventData);
 		bindAccountEmail(data.email);
 	});
 
-	KBENGINE_REGISTER_EVENT_OVERRIDE_FUNC(KBEventTypes::newPassword, KBEventTypes::newPassword, [this](std::shared_ptr<UKBEventData> pEventData)
+	KBENGINE_REGISTER_EVENT_IN_OVERRIDE_FUNC(KBEventTypes::newPassword, KBEventTypes::newPassword, [this](std::shared_ptr<UKBEventData> pEventData)
 	{
 		const UKBEventData_newPassword& data = static_cast<const UKBEventData_newPassword&>(*pEventData);
 		newPassword(data.old_password, data.new_password);
 	});
 
 	// 内部事件
-	KBENGINE_REGISTER_EVENT_OVERRIDE_FUNC("_closeNetwork", "_closeNetwork", [this](std::shared_ptr<UKBEventData> pEventData)
+	KBENGINE_REGISTER_EVENT_IN_OVERRIDE_FUNC("_closeNetwork", "_closeNetwork", [this](std::shared_ptr<UKBEventData> pEventData)
 	{
 		_closeNetwork();
 	});
@@ -256,9 +258,9 @@ void KBEngineApp::reset()
 	serverdatas_.Clear();
 
 	serverVersion_ = KBTEXT("");
-	clientVersion_ = KBTEXT("@{KBE_VERSION}");
+	clientVersion_ = KBTEXT("2.8.1");
 	serverScriptVersion_ = KBTEXT("");
-	clientScriptVersion_ = KBTEXT("@{KBE_SCRIPT_VERSION}");
+	clientScriptVersion_ = KBTEXT("0.1.0");
 
 	entity_uuid_ = 0;
 	entity_id_ = 0;
@@ -284,47 +286,36 @@ void KBEngineApp::reset()
 
 void KBEngineApp::installUKBETicker()
 {
-	// if (pUKBETicker_ == nullptr)
-	// {
-	// 	pUKBETicker_ = NewObject<UKBETicker>();
-	// 	pUKBETicker_->AddToRoot();
-	// }
-
-	if (mainLoop_ == nullptr) {
-		// 创建一个线程运行事件循环
-		mainLoopThread_ = std::make_shared<hv::EventLoopThread>();
-		mainLoopThread_->start(); // 内部会创建 EventLoop 并在新线程 run()
-
-		mainLoop_ = mainLoopThread_->loop(); // 获取 EventLoopPtr
-
-		if (pArgs_!= nullptr && !pArgs_->disableMainLoop) {
-			mainLoop_->setInterval(15, [this](hv::TimerID timerID) {
-				this->process();
-			});
-		}
-
-
+	if (mainLoopRunning_.load())
+	{
+		return;
 	}
 
+	if (pArgs_ != nullptr && pArgs_->disableMainLoop)
+	{
+		return;
+	}
+
+	mainLoopRunning_ = true;
+	mainLoopThread_ = std::thread([this]()
+	{
+		// 用标准线程周期驱动，保持 15ms tick，避免引入额外事件循环依赖。
+		while (mainLoopRunning_.load())
+		{
+			this->process();
+			std::this_thread::sleep_for(std::chrono::milliseconds(15));
+		}
+	});
 }
 
 void KBEngineApp::uninstallUKBETicker()
 {
-	if (mainLoop_) {
-		mainLoop_->stop();
-		mainLoop_ = nullptr;
-	}
+	mainLoopRunning_ = false;
 
-	if (mainLoopThread_) {
-		mainLoopThread_->stop();
-		mainLoopThread_ = nullptr;
+	if (mainLoopThread_.joinable())
+	{
+		mainLoopThread_.join();
 	}
-	// if (pUKBETicker_)
-	// {
-	// 	pUKBETicker_->RemoveFromRoot();
-	// 	pUKBETicker_->ConditionalBeginDestroy();
-	// 	pUKBETicker_ = nullptr;
-	// }
 }
 
 bool KBEngineApp::initNetwork()
@@ -388,15 +379,15 @@ bool KBEngineApp::validEmail(const KBString& strEmail)
 
 void KBEngineApp::process()
 {
-	// 处理网络
-	// if (pNetworkInterface_)
-	// 	pNetworkInterface_->process();
+	// 先处理 socket 收到的原始数据，MessageReader 会把解析出的消息投递到 GameThreadDispatcher。
+	if (pNetworkInterface_)
+		pNetworkInterface_->process();
 
 	GameThreadDispatcher::Instance().Pump();
 
-	KBEvent::processOutEvents();
-	// 处理外层抛入的事件
 	KBEvent::processInEvents();
+	
+	KBEvent::processOutEvents();
 
 	// 向服务端发送心跳以及同步角色信息到服务端
 	sendTick();
@@ -609,7 +600,7 @@ void KBEngineApp::Client_onHelloCB(MemoryStream& stream)
 			UKBEventData_onVersionNotMatch* pEventData = NewObject<UKBEventData_onVersionNotMatch>();
 			pEventData->clientVersion = clientVersion_;
 			pEventData->serverVersion = serverVersion_;
-			KBENGINE_EVENT_FIRE(KBEventTypes::onVersionNotMatch, pEventData);
+			KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onVersionNotMatch, pEventData);
 			return;
 		}
 		*/
@@ -628,7 +619,7 @@ void KBEngineApp::Client_onHelloCB(MemoryStream& stream)
 			// pEventData->serverVersion = serverVersion_;
 
 
-			KBENGINE_EVENT_FIRE(KBEventTypes::onVersionNotMatch, pEventData);
+			KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onVersionNotMatch, pEventData);
 			return;
 		}
 	}
@@ -661,7 +652,7 @@ void KBEngineApp::Client_onVersionNotMatch(MemoryStream& stream)
 	auto pEventData = std::make_shared<UKBEventData_onVersionNotMatch>();
 	pEventData->clientVersion = clientVersion_;
 	pEventData->serverVersion = serverVersion_;
-	KBENGINE_EVENT_FIRE(KBEventTypes::onVersionNotMatch, pEventData);
+	KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onVersionNotMatch, pEventData);
 }
 
 void KBEngineApp::Client_onScriptVersionNotMatch(MemoryStream& stream)
@@ -674,7 +665,7 @@ void KBEngineApp::Client_onScriptVersionNotMatch(MemoryStream& stream)
 	auto pEventData = std::make_shared<UKBEventData_onScriptVersionNotMatch>();
 	pEventData->clientScriptVersion = clientScriptVersion_;
 	pEventData->serverScriptVersion = serverScriptVersion_;
-	KBENGINE_EVENT_FIRE(KBEventTypes::onScriptVersionNotMatch, pEventData);
+	KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onScriptVersionNotMatch, pEventData);
 }
 
 void KBEngineApp::Client_onImportClientSDK(MemoryStream& stream)
@@ -687,7 +678,7 @@ void KBEngineApp::Client_onImportClientSDK(MemoryStream& stream)
 	pEventData->fileSize = stream.readInt32();
 	stream.readBlob(pEventData->fileDatas);
 
-	KBENGINE_EVENT_FIRE("onImportClientSDK", pEventData);
+	KBENGINE_EVENT_FIRE_ALL("onImportClientSDK", pEventData);
 }
 
 void KBEngineApp::Client_onKicked(uint16 failedcode)
@@ -699,7 +690,7 @@ void KBEngineApp::Client_onKicked(uint16 failedcode)
 	auto pEventData = std::make_shared<UKBEventData_onKicked>();
 	pEventData->failedcode = failedcode;
 	pEventData->errorStr = serverErr(failedcode);
-	KBENGINE_EVENT_FIRE(KBEventTypes::onKicked, pEventData);
+	KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onKicked, pEventData);
 }
 
 void KBEngineApp::onServerDigest()
@@ -832,7 +823,7 @@ void KBEngineApp::Client_onLoginFailed(MemoryStream& stream)
 	pEventData->failedcode = failedcode;
 	pEventData->errorStr = serverErr(failedcode);
 	pEventData->serverdatas = serverdatas_;
-	KBENGINE_EVENT_FIRE(KBEventTypes::onLoginFailed, pEventData);
+	KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onLoginFailed, pEventData);
 }
 
 void KBEngineApp::Client_onLoginSuccessfully(MemoryStream& stream)
@@ -856,26 +847,18 @@ void KBEngineApp::login_baseapp(bool noconnect)
 	if (noconnect)
 	{
 		auto pEventData = std::make_shared<UKBEventData_onLoginBaseapp>();
-		// KBENGINE_EVENT_FIRE(KBEventTypes::onLoginBaseapp, NewObject<UKBEventData_onLoginBaseapp>());
-		KBENGINE_EVENT_FIRE(KBEventTypes::onLoginBaseapp, pEventData);
+		// KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onLoginBaseapp, NewObject<UKBEventData_onLoginBaseapp>());
+		KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onLoginBaseapp, pEventData);
 
 
-		mainLoop_->runInLoop([this]{
+		if (pNetworkInterface_)
+		{
+			pNetworkInterface_->destroy();
+			pNetworkInterface_ = nullptr;
 
-			if (pNetworkInterface_)
-			{
-				pNetworkInterface_->destroy();
-				pNetworkInterface_ = nullptr;
-
-				initNetwork();
-				pNetworkInterface_->connectTo(baseappIP_, (!pArgs_->forceDisableUDP && baseappUdpPort_ > 0) ? baseappUdpPort_ : baseappTcpPort_, this, 2);
-			}
-		});
-
-		// pNetworkInterface_->destroy();
-		// pNetworkInterface_ = nullptr;
-		// initNetwork();
-		// pNetworkInterface_->connectTo(baseappIP_, (!pArgs_->forceDisableUDP && baseappUdpPort_ > 0) ? baseappUdpPort_ : baseappTcpPort_, this, 2);
+			initNetwork();
+			pNetworkInterface_->connectTo(baseappIP_, (!pArgs_->forceDisableUDP && baseappUdpPort_ > 0) ? baseappUdpPort_ : baseappTcpPort_, this, 2);
+		}
 	}
 	else
 	{
@@ -921,7 +904,7 @@ void KBEngineApp::reloginBaseapp()
 
 	auto pEventData = std::make_shared<UKBEventData_onReloginBaseapp>();
 	// UKBEventData_onReloginBaseapp* pEventData = NewObject<UKBEventData_onReloginBaseapp>();
-	KBENGINE_EVENT_FIRE(KBEventTypes::onReloginBaseapp, pEventData);
+	KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onReloginBaseapp, pEventData);
 
 	pNetworkInterface_->connectTo(baseappIP_, (!pArgs_->forceDisableUDP && baseappUdpPort_ > 0) ? baseappUdpPort_ : baseappTcpPort_, this, 3);
 }
@@ -955,7 +938,7 @@ void KBEngineApp::Client_onLoginBaseappFailed(uint16 failedcode)
 	auto pEventData = std::make_shared<UKBEventData_onLoginBaseappFailed>();
 	pEventData->failedcode = failedcode;
 	pEventData->errorStr = serverErr(failedcode);
-	KBENGINE_EVENT_FIRE(KBEventTypes::onLoginBaseappFailed, pEventData);
+	KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onLoginBaseappFailed, pEventData);
 }
 
 void KBEngineApp::Client_onReloginBaseappFailed(uint16 failedcode)
@@ -966,7 +949,7 @@ void KBEngineApp::Client_onReloginBaseappFailed(uint16 failedcode)
 	auto pEventData = std::make_shared<UKBEventData_onReloginBaseappFailed>();
 	pEventData->failedcode = failedcode;
 	pEventData->errorStr = serverErr(failedcode);
-	KBENGINE_EVENT_FIRE(KBEventTypes::onReloginBaseappFailed, pEventData);
+	KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onReloginBaseappFailed, pEventData);
 }
 
 void KBEngineApp::Client_onReloginBaseappSuccessfully(MemoryStream& stream)
@@ -975,7 +958,7 @@ void KBEngineApp::Client_onReloginBaseappSuccessfully(MemoryStream& stream)
 	ERROR_MSG("KBEngineApp::Client_onReloginBaseappSuccessfully(): name(%s)!", username_.c_str());
 	// UKBEventData_onReloginBaseappSuccessfully* pEventData = NewObject<UKBEventData_onReloginBaseappSuccessfully>();
 	auto pEventData = std::make_shared<UKBEventData_onReloginBaseappSuccessfully>();
-	KBENGINE_EVENT_FIRE(KBEventTypes::onReloginBaseappSuccessfully, pEventData);
+	KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onReloginBaseappSuccessfully, pEventData);
 }
 
 void KBEngineApp::Client_onCreatedProxies(uint64 rndUUID, int32 eid, KBString& entityType)
@@ -1131,7 +1114,7 @@ void KBEngineApp::Client_onEntityDestroyed(int32 eid)
 		// UKBEventData_onLoseControlledEntity* pEventData = NewObject<UKBEventData_onLoseControlledEntity>();
 	auto pEventData = std::make_shared<UKBEventData_onLoseControlledEntity>();
 		pEventData->entityID = pEntity->id();
-		KBENGINE_EVENT_FIRE(KBEventTypes::onLoseControlledEntity, pEventData);
+		KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onLoseControlledEntity, pEventData);
 	}
 
 	entities_.Remove(eid);
@@ -1213,7 +1196,7 @@ void KBEngineApp::Client_setSpaceData(uint32 spaceID, const KBString& key, const
 	pEventData->spaceID = spaceID_;
 	pEventData->key = key;
 	pEventData->value = value;
-	KBENGINE_EVENT_FIRE(KBEventTypes::onSetSpaceData, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onSetSpaceData, pEventData);
 }
 
 void KBEngineApp::Client_delSpaceData(uint32 spaceID, const KBString& key)
@@ -1226,7 +1209,7 @@ void KBEngineApp::Client_delSpaceData(uint32 spaceID, const KBString& key)
 	auto pEventData = std::make_shared<UKBEventData_onDelSpaceData>();
 	pEventData->spaceID = spaceID_;
 	pEventData->key = key;
-	KBENGINE_EVENT_FIRE(KBEventTypes::onDelSpaceData, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onDelSpaceData, pEventData);
 }
 
 void KBEngineApp::addSpaceGeometryMapping(uint32 uspaceID, const KBString& respath)
@@ -1240,7 +1223,7 @@ void KBEngineApp::addSpaceGeometryMapping(uint32 uspaceID, const KBString& respa
 	// UKBEventData_addSpaceGeometryMapping* pEventData = NewObject<UKBEventData_addSpaceGeometryMapping>();
 	auto pEventData = std::make_shared<UKBEventData_addSpaceGeometryMapping>();
 	pEventData->spaceResPath = spaceResPath_;
-	KBENGINE_EVENT_FIRE(KBEventTypes::addSpaceGeometryMapping, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::addSpaceGeometryMapping, pEventData);
 }
 
 KBString KBEngineApp::getSpaceData(const KBString& key)
@@ -1307,7 +1290,7 @@ void KBEngineApp::Client_onReqAccountResetPasswordCB(uint16 failcode)
 	auto pEventData = std::make_shared<UKBEventData_onResetPassword>();
 	pEventData->failedcode = failcode;
 	pEventData->errorStr = serverErr(failcode);
-	KBENGINE_EVENT_FIRE(KBEventTypes::onResetPassword, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onResetPassword, pEventData);
 	
 	if (failcode != 0)
 	{
@@ -1398,7 +1381,7 @@ void KBEngineApp::Client_onCreateAccountResult(MemoryStream& stream)
 	pEventData->errorCode = retcode;
 	pEventData->errorStr = serverErr(retcode);
 	pEventData->datas = datas;
-	KBENGINE_EVENT_FIRE(KBEventTypes::onCreateAccountResult, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onCreateAccountResult, pEventData);
 
 	if (retcode != 0)
 	{
@@ -1426,7 +1409,7 @@ void KBEngineApp::Client_onReqAccountBindEmailCB(uint16 failcode)
 	auto pEventData = std::make_shared<UKBEventData_onBindAccountEmail>();
 	pEventData->failedcode = failcode;
 	pEventData->errorStr = serverErr(failcode);
-	KBENGINE_EVENT_FIRE(KBEventTypes::onBindAccountEmail, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onBindAccountEmail, pEventData);
 
 	if (failcode != 0)
 	{
@@ -1454,7 +1437,7 @@ void KBEngineApp::Client_onReqAccountNewPasswordCB(uint16 failcode)
 	auto pEventData = std::make_shared<UKBEventData_onNewPassword>();
 	pEventData->failedcode = failcode;
 	pEventData->errorStr = serverErr(failcode);
-	KBENGINE_EVENT_FIRE(KBEventTypes::onNewPassword, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onNewPassword, pEventData);
 
 	if (failcode != 0)
 	{
@@ -1525,7 +1508,7 @@ void KBEngineApp::Client_onControlEntity(ENTITY_ID eid, int8 isControlled)
 	auto pEventData = std::make_shared<UKBEventData_onControlled>();
 	pEventData->entityID = (*pEntityFind)->id();
 	pEventData->isControlled = isCont;
-	KBENGINE_EVENT_FIRE(KBEventTypes::onControlled, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onControlled, pEventData);
 }
 
 void KBEngineApp::Client_onStreamDataStarted(int16 id, uint32 datasize, KBString descr)
@@ -1535,7 +1518,7 @@ void KBEngineApp::Client_onStreamDataStarted(int16 id, uint32 datasize, KBString
 	pEventData->resID = id;
 	pEventData->dataSize = datasize;
 	pEventData->dataDescr = descr;
-	KBENGINE_EVENT_FIRE(KBEventTypes::onStreamDataStarted, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onStreamDataStarted, pEventData);
 }
 
 void KBEngineApp::Client_onStreamDataRecv(MemoryStream& stream)
@@ -1547,7 +1530,7 @@ void KBEngineApp::Client_onStreamDataRecv(MemoryStream& stream)
 	pEventData->resID = id;
 	stream.readBlob(pEventData->data);
 
-	KBENGINE_EVENT_FIRE(KBEventTypes::onStreamDataRecv, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onStreamDataRecv, pEventData);
 }
 
 void KBEngineApp::Client_onStreamDataCompleted(int16 id)
@@ -1555,7 +1538,7 @@ void KBEngineApp::Client_onStreamDataCompleted(int16 id)
 	// UKBEventData_onStreamDataCompleted* pEventData = NewObject<UKBEventData_onStreamDataCompleted>();
 	auto pEventData = std::make_shared<UKBEventData_onStreamDataCompleted>();
 	pEventData->resID = id;
-	KBENGINE_EVENT_FIRE(KBEventTypes::onStreamDataCompleted, pEventData);
+	KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onStreamDataCompleted, pEventData);
 }
 
 void KBEngineApp::Client_onEntityEnterWorld(MemoryStream& stream)
@@ -1697,7 +1680,7 @@ void KBEngineApp::Client_onEntityLeaveWorld(ENTITY_ID eid)
 			// UKBEventData_onLoseControlledEntity* pEventData = NewObject<UKBEventData_onLoseControlledEntity>();
 			auto pEventData = std::make_shared<UKBEventData_onLoseControlledEntity>();
 			pEventData->entityID = pEntity->id();
-			KBENGINE_EVENT_FIRE(KBEventTypes::onLoseControlledEntity, pEventData);
+			KBENGINE_EVENT_FIRE_OUT(KBEventTypes::onLoseControlledEntity, pEventData);
 		}
 
 		entities_.Remove(eid);
@@ -1764,7 +1747,7 @@ void KBEngineApp::Client_onUpdateBasePos(float x, float y, float z)
 		// // KBDir2UE4Dir(pEventData->direction, pEntity->direction);
 		// pEventData->entityID = pEntity->id();
 		// pEventData->moveSpeed = pEntity->velocity();
-		// KBENGINE_EVENT_FIRE(KBEventTypes::updatePosition, pEventData);
+		// KBENGINE_EVENT_FIRE_OUT(KBEventTypes::updatePosition, pEventData);
 
 
 		pEntity->onSmoothPositionChanged(oldPos);
@@ -1792,7 +1775,7 @@ void KBEngineApp::Client_onUpdateBasePosXZ(float x, float z)
 		// // KBDir2UE4Dir(pEventData->direction, pEntity->direction);
 		// pEventData->entityID = pEntity->id();
 		// pEventData->moveSpeed = pEntity->velocity();
-		// KBENGINE_EVENT_FIRE(KBEventTypes::updatePosition, pEventData);
+		// KBENGINE_EVENT_FIRE_OUT(KBEventTypes::updatePosition, pEventData);
 
 		pEntity->onSmoothPositionChanged(oldPos);
 
@@ -1816,7 +1799,7 @@ void KBEngineApp::Client_onUpdateBaseDir(MemoryStream& stream)
 		// auto pEventData = std::make_shared<UKBEventData_set_direction>();
 		// // KBDir2UE4Dir(pEventData->direction, pEntity->direction);
 		// pEventData->entityID = pEntity->id();
-		// KBENGINE_EVENT_FIRE(KBEventTypes::set_direction, pEventData);
+		// KBENGINE_EVENT_FIRE_OUT(KBEventTypes::set_direction, pEventData);
 
 		pEntity->onDirectionChanged(old_direction);
 
@@ -2467,7 +2450,7 @@ void KBEngineApp::_updateVolatileData(ENTITY_ID entityID, float x, float y, floa
 		// auto pEventData = std::make_shared<UKBEventData_set_direction>();
 		// // KBDir2UE4Dir(pEventData->direction, entity.direction);
 		// pEventData->entityID = entity.id();
-		// KBENGINE_EVENT_FIRE(KBEventTypes::set_direction, pEventData);
+		// KBENGINE_EVENT_FIRE_OUT(KBEventTypes::set_direction, pEventData);
 
 		entity.onDirectionChanged(old_direction);
 
@@ -2491,7 +2474,7 @@ void KBEngineApp::_updateVolatileData(ENTITY_ID entityID, float x, float y, floa
 		// pEventData->entityID = entity.id();
 		// pEventData->moveSpeed = entity.velocity();
 		// pEventData->isOnGround = entity.isOnGround();
-		// KBENGINE_EVENT_FIRE(KBEventTypes::updatePosition, pEventData);
+		// KBENGINE_EVENT_FIRE_OUT(KBEventTypes::updatePosition, pEventData);
 
 
 		entity.onSmoothPositionChanged(oldPos);

@@ -50,10 +50,10 @@ namespace KBEngine {
 	{																																	\
 		if(messageLength >= NETWORK_MESSAGE_MAX_SIZE)																					\
 		{																																\
-			Network::MessageLength1 ex_msg_length = messageLength;																		\
+			Network::MessageLength1 ex_msg_length = static_cast<Network::MessageLength1>(messageLength);								\
 			KBEngine::EndianConvert(ex_msg_length);																						\
 																																		\
-			Network::MessageLength msgLen = NETWORK_MESSAGE_MAX_SIZE;																	\
+			Network::MessageLength msgLen = static_cast<Network::MessageLength>(NETWORK_MESSAGE_MAX_SIZE);								\
 			KBEngine::EndianConvert(msgLen);																							\
 																																		\
 			memcpy(&pCurrPacket_##ACTIONNAME->data()[currMsgLengthPos_##ACTIONNAME], 													\
@@ -61,11 +61,11 @@ namespace KBEngine {
 																																		\
 			pCurrPacket_##ACTIONNAME->insert(currMsgLengthPos_##ACTIONNAME + NETWORK_MESSAGE_LENGTH_SIZE, 								\
 											(uint8*)&ex_msg_length, NETWORK_MESSAGE_LENGTH1_SIZE);										\
-			SENDBUNDLE->currMsgLength(SENDBUNDLE->currMsgLength() + NETWORK_MESSAGE_LENGTH1_SIZE);										\
+			SENDBUNDLE->currMsgLength(static_cast<Network::MessageLength1>(SENDBUNDLE->currMsgLength() + NETWORK_MESSAGE_LENGTH1_SIZE));	\
 		}																																\
 		else																															\
 		{																																\
-			Network::MessageLength msgLen = messageLength;																				\
+			Network::MessageLength msgLen = static_cast<Network::MessageLength>(messageLength);											\
 			KBEngine::EndianConvert(msgLen);																							\
 																																		\
 			memcpy(&pCurrPacket_##ACTIONNAME->data()[currMsgLengthPos_##ACTIONNAME], 													\
@@ -73,11 +73,11 @@ namespace KBEngine {
 		}																																\
 	}																																	\
 																																		\
-	Network::NetworkStats::getSingleton().trackMessage(Network::NetworkStats::SEND, MESSAGEHANDLE, messageLength);						\
+	Network::NetworkStats::getSingleton().trackMessage(Network::NetworkStats::SEND, MESSAGEHANDLE, static_cast<uint32>(messageLength));	\
 																																		\
 	if (Network::g_trace_packet > 0)																									\
 		Network::Bundle::debugCurrentMessages(MESSAGEHANDLE.msgID, &MESSAGEHANDLE, 														\
-				pCurrPacket, SENDBUNDLE->packets(), messageLength, SENDBUNDLE->pChannel());												\
+				pCurrPacket, SENDBUNDLE->packets(), static_cast<Network::MessageLength1>(messageLength), SENDBUNDLE->pChannel());		\
 }																																		\
 
 

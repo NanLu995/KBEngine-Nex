@@ -13,6 +13,7 @@
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
 #include "network/event_poller.h"
+#include "network/poller_iocp.h"
 #include "network/error_reporter.h"
 #include <openssl/err.h>
 
@@ -79,6 +80,63 @@ bool TCPPacketReceiver::processRecv(bool expectingPacket)
 	}
 
 	TCPPacket* pReceiveWindow = TCPPacket::createPoolObject(OBJECTPOOL_POINT);
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
+	{
+		// Windows IOCP 模式下，socket 数据已经在 WSARecv completion 中到达。
+		// 这里不能再调用 recv，否则会把 completion 模型退回 readiness 模型，
+		// 并可能在第二次登录/断线时读错时序或阻塞主线程。
+		std::vector<char> data;
+		bool disconnected = false;
+		DWORD errorCode = 0;
+		if (!pIocpPoller->takeTcpReceivedData(static_cast<int>(*pEndpoint_), data, disconnected, errorCode))
+		{
+			TCPPacket::reclaimPoolObject(pReceiveWindow);
+			return false;
+		}
+
+		if (errorCode != 0)
+		{
+			// 发送 completion 失败也会通过读侧错误队列进入这里。
+			// 这样 channel 的关闭/注销仍然走 TCPPacketReceiver 原来的错误路径。
+			TCPPacket::reclaimPoolObject(pReceiveWindow);
+			WSASetLastError(errorCode);
+			PacketReceiver::RecvState rstate = this->checkSocketErrors(-1, expectingPacket);
+			if (rstate == PacketReceiver::RECV_STATE_INTERRUPT)
+			{
+				onGetError(pChannel, fmt::format("TCPPacketReceiver::processRecv(): error={}\n", kbe_lasterror()));
+				return false;
+			}
+
+			return rstate == PacketReceiver::RECV_STATE_CONTINUE;
+		}
+
+		if (disconnected)
+		{
+			TCPPacket::reclaimPoolObject(pReceiveWindow);
+			onGetError(pChannel, "disconnected");
+			return false;
+		}
+
+		if (data.empty())
+		{
+			TCPPacket::reclaimPoolObject(pReceiveWindow);
+			return false;
+		}
+
+		memcpy(pReceiveWindow->data(), data.data(), data.size());
+		pReceiveWindow->wpos(static_cast<uint32>(data.size()));
+
+		Reason ret = this->processPacket(pChannel, pReceiveWindow);
+
+		if (ret != REASON_SUCCESS)
+			this->dispatcher().errorReporter().reportException(ret, pEndpoint_->addr());
+
+		return true;
+	}
+#endif
+
 	int len = pReceiveWindow->recvFromEndPoint(*pEndpoint_);
 
 	if (len < 0)
@@ -134,6 +192,8 @@ Reason TCPPacketReceiver::processFilteredPacket(Channel* pChannel, Packet * pPac
 //-------------------------------------------------------------------------------------
 PacketReceiver::RecvState TCPPacketReceiver::checkSocketErrors(int len, bool expectingPacket)
 {
+	Channel* pChannel = getChannel();
+
 #if KBE_PLATFORM == PLATFORM_WIN32
 	DWORD wsaErr = WSAGetLastError();
 #endif //def _WIN32
@@ -149,7 +209,7 @@ PacketReceiver::RecvState TCPPacketReceiver::checkSocketErrors(int len, bool exp
 		return RECV_STATE_BREAK;
 	}
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 	if (errno == EAGAIN ||							// 已经无数据可读了
 		errno == ECONNREFUSED ||					// 连接被服务器拒绝
 		errno == EHOSTUNREACH)						// 目的地址不可到达
@@ -173,6 +233,20 @@ PacketReceiver::RecvState TCPPacketReceiver::checkSocketErrors(int len, bool exp
 			"Throwing REASON_GENERAL_NETWORK - WSAECONNRESET\n", (pEndpoint_ ? pEndpoint_->addr().c_str() : "")));
 		return RECV_STATE_INTERRUPT;
 	case WSAECONNABORTED:
+		if (pChannel != NULL &&
+			pChannel->isInternal() &&
+			pChannel->hasHandshake() &&
+			pChannel->componentID() == 0 &&
+			pChannel->numPacketsReceived() == 1 &&
+			pChannel->numBytesReceived() == NETWORK_MESSAGE_ID_SIZE)
+		{
+			INFO_MSG(fmt::format("TCPPacketReceiver::processPendingEvents({}): "
+				"internal fixed-size probe disconnected after first request "
+				"(likely lookApp/queryLoad/reqClose, WSAECONNABORTED).\n",
+				(pEndpoint_ ? pEndpoint_->addr().c_str() : "")));
+			return RECV_STATE_INTERRUPT;
+		}
+
 		WARNING_MSG(fmt::format("TCPPacketReceiver::processPendingEvents({}): "
 			"Throwing REASON_GENERAL_NETWORK - WSAECONNABORTED\n", (pEndpoint_ ? pEndpoint_->addr().c_str() : "")));
 		return RECV_STATE_INTERRUPT;

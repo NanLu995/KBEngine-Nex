@@ -25,6 +25,9 @@ int8 g_channelExternalEncryptType = 0;
 
 uint32 g_SOMAXCONN = 5;
 
+uint32 g_maxCompletionsPerTick = 1024;
+uint32 g_maxCompletionProcessingTimeMS = 5;
+
 // UDP参数
 uint32						g_rudp_intWritePacketsQueueSize = 65535;
 uint32						g_rudp_intReadPacketsQueueSize = 65535;
@@ -69,6 +72,12 @@ uint32						g_extReSendRetries = 3;
 // Certificate file required for HTTPS/WSS/SSL communication
 std::string					g_sslCertificate = "";
 std::string					g_sslPrivateKey = "";
+
+// KBEngine.urlopen default timeout settings.
+uint32						g_urlopenTimeout = 10;
+uint32						g_urlopenConnectTimeout = 10;
+uint32						g_urlopenLowSpeedTime = 5;
+uint32						g_urlopenLowSpeedLimit = 30;
 
 bool initializeWatcher()
 {
@@ -164,7 +173,7 @@ bool kbe_poll(int fd)
 	FD_ZERO(&frds);
 	FD_SET(fd, &frds);
 
-	int selgot = select(fd + 1, &frds, NULL, NULL, &tv);
+	int selgot = select(static_cast<int>(fd + 1), &frds, NULL, NULL, &tv);
 	if (selgot <= 0)
 		return false;
 	else

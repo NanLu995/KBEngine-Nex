@@ -5,9 +5,6 @@
 #include "KBECommon.h"
 
 #include "EncryptionFilter.h"
-#include "EventLoop.h"
-#include "Channel.h"
-#include "EventLoopThread.h"
 
 /*
 	网络模块
@@ -30,14 +27,6 @@ public:
 	const KBString UDP_HELLO_ACK = KBTEXT("1432ad7c829170a76dd31982c3501eca");
 
 public:
-	// FSocket* socket() {
-	// 	return socket_;
-	// }
-
- //    hv::SocketChannel* socket() {
-	// 	return socket_;
-	// }
-
 	virtual EncryptionFilter* filter() {
 		return pFilter_;
 	}
@@ -91,10 +80,6 @@ protected:
 	EncryptionFilter *pFilter_;
 
 
-	// std::shared_ptr<hv::EventLoopThread> Loop;
-
-
-	// std::shared_ptr<hv::SocketChannel> socket_;
 };
 
 }

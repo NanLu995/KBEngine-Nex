@@ -270,48 +270,6 @@ bool Cellapp::initializeBegin()
 
 //-------------------------------------------------------------------------------------	
 
-/**
-内部定时器处理类
-*/
-class AsyncTimerHandler : public TimerHandler
-{
-public:
-	AsyncTimerHandler(ScriptTimers* scriptTimers, PyObject* callback) :
-		pyCallback_(callback),
-		asyncTimerTimers_(scriptTimers)
-	{
-		Py_INCREF(pyCallback_);
-	}
-
-	~AsyncTimerHandler()
-	{
-		Py_DECREF(pyCallback_);
-	}
-
-private:
-	virtual void handleTimeout(TimerHandle handle, void* pUser)
-	{
-		int id = ScriptTimersUtil::getIDForHandle(asyncTimerTimers_, handle);
-
-		PyObject* pyRet = PyObject_CallFunction(pyCallback_, "i", id);
-		if (pyRet == NULL)
-		{
-			SCRIPT_ERROR_CHECK();
-			return;
-		}
-		return;
-	}
-
-	virtual void onRelease(TimerHandle handle, void* /*pUser*/)
-	{
-		asyncTimerTimers_->releaseTimer(handle);
-		delete this;
-	}
-
-	PyObject* pyCallback_;
-	ScriptTimers* asyncTimerTimers_;
-};
-
 //-------------------------------------------------------------------------------------
 bool Cellapp::initializeEnd()
 {
@@ -323,13 +281,6 @@ bool Cellapp::initializeEnd()
 	}
 
 	pWitnessedTimeoutHandler_ = new WitnessedTimeoutHandler();
-
-	PyObject* dispatcherMod = PyImport_ImportModule("async_dispatcher");
-	PyObject* submitFunc = PyObject_GetAttrString(dispatcherMod, "onAsyncTimer");
-
-	ScriptTimers* pTimers = &asyncTimerTimers_;
-	AsyncTimerHandler* handler = new AsyncTimerHandler(pTimers, submitFunc);
-	ScriptTimersUtil::addTimer(&pTimers, 0.1f, g_kbeSrvConfig.asyncioRepeatOffset(), 0, handler);
 
 	// 是否管理Y轴
 	CoordinateSystem::hasY = g_kbeSrvConfig.getCellApp().coordinateSystem_hasY;
@@ -368,7 +319,6 @@ void Cellapp::finalise()
 	forward_messagebuffer_.clear();
 	updatables_.clear();
 
-	asyncTimerTimers_.cancelAll();
 	destroyObjPool();
 	EntityApp<Entity>::finalise();
 }
@@ -589,7 +539,7 @@ PyObject* Cellapp::__py_createEntity(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------
 PyObject* Cellapp::__py_executeRawDatabaseCommand(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* pycallback = NULL;
 	PyObject* pyDBInterfaceName = NULL;
 	int ret = 0;
@@ -1004,7 +954,7 @@ void Cellapp::onCreateCellEntityInNewSpaceFromBaseapp(Network::Channel* pChannel
 
 		KBE_SHA1 sha;
 		uint32 digest[5];
-		sha.Input(s.data(), s.length());
+		sha.Input(s.data(), static_cast<unsigned int>(s.length()));
 		sha.Result(digest);
 		e->setDirty((uint32*)&digest[0]);
 
@@ -1108,7 +1058,7 @@ void Cellapp::onRestoreSpaceInCellFromBaseapp(Network::Channel* pChannel, KBEngi
 		
 		KBE_SHA1 sha;
 		uint32 digest[5];
-		sha.Input(s.data(), s.length());
+		sha.Input(s.data(), static_cast<unsigned int>(s.length()));
 		sha.Result(digest);
 		e->setDirty((uint32*)&digest[0]);
 
@@ -1251,7 +1201,7 @@ void Cellapp::_onCreateCellEntityFromBaseapp(std::string& entityType, ENTITY_ID 
 		
 		KBE_SHA1 sha;
 		uint32 digest[5];
-		sha.Input(pCellData->data(), pCellData->length());
+		sha.Input(pCellData->data(), static_cast<unsigned int>(pCellData->length()));
 		sha.Result(digest);
 		e->setDirty((uint32*)&digest[0]);
 
@@ -1878,7 +1828,7 @@ void Cellapp::lookApp(Network::Channel* pChannel)
 PyObject* Cellapp::__py_reloadScript(PyObject* self, PyObject* args)
 {
 	bool fullReload = true;
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount == 1)
 	{
 		if(!PyArg_ParseTuple(args, "b", &fullReload))
@@ -2191,7 +2141,7 @@ int Cellapp::raycast(SPACE_ID spaceID, int layer, const Position3D& start, const
 //-------------------------------------------------------------------------------------
 PyObject* Cellapp::__py_raycast(PyObject* self, PyObject* args)
 {
-	uint16 currargsSize = (uint16)PyTuple_Size(args);
+	Py_ssize_t currargsSize = PyTuple_Size(args);
 
 	int layer = 0;
 	SPACE_ID spaceID = 0;
@@ -2265,7 +2215,7 @@ PyObject* Cellapp::__py_raycast(PyObject* self, PyObject* args)
 	}
 
 	int idx = 0;
-	PyObject* pyHitpos = PyTuple_New(hitPosVec.size());
+	PyObject* pyHitpos = PyTuple_New(static_cast<Py_ssize_t>(hitPosVec.size()));
 	for(std::vector<Position3D>::iterator iter = hitPosVec.begin(); iter != hitPosVec.end(); ++iter)
 	{
 		PyObject* pyHitposItem = PyTuple_New(3);

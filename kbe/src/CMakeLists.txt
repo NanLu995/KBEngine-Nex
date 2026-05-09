@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(KBEngineNex LANGUAGES C CXX)
 
 # 设置 C++ 标准
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -183,6 +183,10 @@ add_compile_definitions(USE_JEMALLOC)
 
 add_compile_definitions(KBE_SERVER)
 
+if(APPLE)
+    add_compile_definitions(HAVE_DARWIN)
+endif()
+
 # # Release 才开启 CODE_INLINE
 # if(KBE_CONFIG MATCHES "^Release")
 #     add_compile_definitions(CODE_INLINE)
@@ -229,7 +233,13 @@ add_compile_definitions(
 
 add_subdirectory(lib/dependencies/g3dlite)
 add_subdirectory(lib/dependencies/jwsmtp/jwsmtp/jwsmtp)
-add_subdirectory(lib/dependencies/sigar/linux)
+if(WIN32)
+    add_subdirectory(lib/dependencies/sigar/win32)
+elseif(APPLE)
+    add_subdirectory(lib/dependencies/sigar/macos)
+else()
+    add_subdirectory(lib/dependencies/sigar/linux)
+endif()
 
 
 add_subdirectory(lib/dependencies/tinyxml)
@@ -264,6 +274,4 @@ add_subdirectory(server/tools/interfaces)
 add_subdirectory(server/tools/logger)
 add_subdirectory(server/tools/kbcmd)
 add_subdirectory(server/tools/bots)
-
-
 

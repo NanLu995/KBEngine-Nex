@@ -71,7 +71,7 @@ public:
 
 		if(epListen.connect(_port, _ip) == -1)
 		{
-			int selgot = select(epListen+1, &frds, &fwds, NULL, &tv);
+			int selgot = select(static_cast<int>(epListen + 1), &frds, &fwds, NULL, &tv);
 			if(selgot <= 0)
 			{
 				ERROR_MSG(fmt::format("LookAppTask::process: couldn't connect to:{}\n", 
@@ -104,7 +104,7 @@ public:
 			FD_ZERO( &fds );
 			FD_SET((int)epListen, &fds);
 
-			int selgot = select(epListen+1, &fds, NULL, NULL, &tv);
+			int selgot = select(static_cast<int>(epListen + 1), &fds, NULL, NULL, &tv);
 			if(selgot == 0)
 			{
 				// 超时, 可能对方繁忙

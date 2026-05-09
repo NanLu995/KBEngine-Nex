@@ -7,6 +7,7 @@
 #include "network/packet.h"
 #include "common/base64.h"
 #include "common/sha1.h"
+#include <limits>
 
 #if KBE_PLATFORM == PLATFORM_WIN32
 #ifdef _DEBUG
@@ -21,6 +22,14 @@
 namespace KBEngine{
 namespace Network{
 namespace websocket{
+namespace
+{
+inline int toIntSize(size_t v)
+{
+	KBE_ASSERT(v <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(v);
+}
+}
 
 //-------------------------------------------------------------------------------------
 bool WebSocketProtocol::isWebSocketProtocol(MemoryStream* s)
@@ -37,8 +46,10 @@ bool WebSocketProtocol::isWebSocketProtocol(MemoryStream* s)
 
 	(*s) >> data;
 
-	s->rpos(rpos);
-	s->wpos(wpos);
+	KBE_ASSERT(rpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	KBE_ASSERT(wpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	s->rpos(static_cast<int>(rpos));
+	s->wpos(static_cast<int>(wpos));
 
 	size_t fi = data.find("Sec-WebSocket-Key");
 	if(fi == std::string::npos)
@@ -83,8 +94,10 @@ bool WebSocketProtocol::handshake(Network::Channel* pChannel, MemoryStream* s)
 	
 	if(header_and_data.size() != 2)
 	{
-		s->rpos(rpos);
-		s->wpos(wpos);
+		KBE_ASSERT(rpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		KBE_ASSERT(wpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		s->rpos(static_cast<int>(rpos));
+		s->wpos(static_cast<int>(wpos));
 		return false;
 	}
 
@@ -129,8 +142,10 @@ bool WebSocketProtocol::handshake(Network::Channel* pChannel, MemoryStream* s)
 	findIter = headers.find("Sec-WebSocket-Key");
 	if(findIter == headers.end())
 	{
-		s->rpos(rpos);
-		s->wpos(wpos);
+		KBE_ASSERT(rpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		KBE_ASSERT(wpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		s->rpos(static_cast<int>(rpos));
+		s->wpos(static_cast<int>(wpos));
 		return false;
 	}
 
@@ -139,8 +154,10 @@ bool WebSocketProtocol::handshake(Network::Channel* pChannel, MemoryStream* s)
 	findIter = headers.find("Host");
 	if(findIter == headers.end())
 	{
-		s->rpos(rpos);
-		s->wpos(wpos);
+		KBE_ASSERT(rpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		KBE_ASSERT(wpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		s->rpos(static_cast<int>(rpos));
+		s->wpos(static_cast<int>(wpos));
 		return false;
 	}
 
@@ -174,7 +191,7 @@ bool WebSocketProtocol::handshake(Network::Channel* pChannel, MemoryStream* s)
 
 	Network::Bundle* pBundle = Network::Bundle::createPoolObject(OBJECTPOOL_POINT);
 	(*pBundle) << ackHandshake;
-	(*pBundle).pCurrPacket()->wpos((*pBundle).pCurrPacket()->wpos() - 1);
+	(*pBundle).pCurrPacket()->wpos(toIntSize((*pBundle).pCurrPacket()->wpos() - 1));
 	pChannel->send(pBundle);
 	return true;
 }
@@ -209,7 +226,8 @@ int WebSocketProtocol::makeFrame(WebSocketProtocol::FrameType frame_type,
 		(*pOutPacket) << size;
 	}
 
-	return pOutPacket->length();
+	KBE_ASSERT(pOutPacket->length() <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	return static_cast<int>(pOutPacket->length());
 }
 
 //-------------------------------------------------------------------------------------
@@ -238,7 +256,8 @@ int WebSocketProtocol::getFrame(Packet * pPacket, uint8& msg_opcode, uint8& msg_
 	*/
 
 	// 不足3字节，需要继续等待
-	int remainSize = 3 - pPacket->length();
+	KBE_ASSERT(pPacket->length() <= static_cast<size_t>(std::numeric_limits<int>::max()));
+	int remainSize = 3 - static_cast<int>(pPacket->length());
 	if(remainSize > 0) 
 	{
 		frameType = INCOMPLETE_FRAME;
@@ -270,7 +289,8 @@ int WebSocketProtocol::getFrame(Packet * pPacket, uint8& msg_opcode, uint8& msg_
 	else if(msg_length_field == 126) 
 	{ 
 		// 不足2字节，需要继续等待
-		remainSize = 2 - pPacket->length();
+		KBE_ASSERT(pPacket->length() <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		remainSize = 2 - static_cast<int>(pPacket->length());
 		if(remainSize > 0) 
 		{
 			frameType = INCOMPLETE_FRAME;
@@ -284,7 +304,8 @@ int WebSocketProtocol::getFrame(Packet * pPacket, uint8& msg_opcode, uint8& msg_
 	else if(msg_length_field == 127) 
 	{
 		// 不足8字节，需要继续等待
-		remainSize = 8 - pPacket->length();
+		KBE_ASSERT(pPacket->length() <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		remainSize = 8 - static_cast<int>(pPacket->length());
 		if(remainSize > 0) 
 		{
 			frameType = INCOMPLETE_FRAME;
@@ -318,7 +339,8 @@ int WebSocketProtocol::getFrame(Packet * pPacket, uint8& msg_opcode, uint8& msg_
 	if(msg_masked) 
 	{
 		// 不足4字节，需要继续等待
-		remainSize = 4 - pPacket->length();
+		KBE_ASSERT(pPacket->length() <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		remainSize = 4 - static_cast<int>(pPacket->length());
 		if(remainSize > 0) 
 		{
 			frameType = INCOMPLETE_FRAME;
@@ -355,7 +377,8 @@ bool WebSocketProtocol::decodingDatas(Packet* pPacket, uint8 msg_masked, uint32 
 	if(msg_masked) 
 	{
 		uint8* c = pPacket->data() + pPacket->rpos();
-		for(int i=0; i<(int)pPacket->length(); i++) {
+		KBE_ASSERT(pPacket->length() <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		for(int i=0; i<static_cast<int>(pPacket->length()); i++) {
 			c[i] = c[i] ^ ((uint8*)(&msg_mask))[i % 4];
 		}
 	}

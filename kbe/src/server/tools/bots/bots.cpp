@@ -34,6 +34,43 @@
 #include "bots_active_report_handler.h"
 
 namespace KBEngine{
+namespace
+{
+bool triggerCrashTestIfNeeded()
+{
+	const char* crashType = getenv("KBE_BOTS_CRASH_TEST");
+	if (crashType == NULL || crashType[0] == '\0')
+		return false;
+
+	CRITICAL_MSG(fmt::format("Bots crash test triggered: {}\n", crashType));
+	DebugHelper::getSingleton().finalise();
+
+	if (kbe_stricmp(crashType, "seh") == 0)
+	{
+#if KBE_PLATFORM == PLATFORM_WIN32
+		::RaiseException(EXCEPTION_ACCESS_VIOLATION, EXCEPTION_NONCONTINUABLE, 0, NULL);
+#else
+		volatile int* p = 0;
+		*p = 1;
+#endif
+	}
+	else if (kbe_stricmp(crashType, "sigabrt") == 0)
+	{
+		raise(SIGABRT);
+	}
+	else if (kbe_stricmp(crashType, "abort") == 0)
+	{
+		abort();
+	}
+	else
+	{
+		ERROR_MSG(fmt::format("Bots crash test type '{}' is unsupported. Use seh|sigabrt|abort.\n", crashType));
+		return false;
+	}
+
+	return true;
+}
+}
 
 //-------------------------------------------------------------------------------------
 Bots::Bots(Network::EventDispatcher& dispatcher, 
@@ -129,6 +166,7 @@ bool Bots::initializeEnd()
 		return false;
 	}
 
+	triggerCrashTestIfNeeded();
 	return true;
 }
 
@@ -300,6 +338,17 @@ void Bots::handleTimeout(TimerHandle handle, void * arg)
 }
 
 //-------------------------------------------------------------------------------------
+void Bots::onChannelDeregister(Network::Channel * pChannel)
+{
+	if (pChannel->isInternal())
+	{
+		Components::getSingleton().onChannelDeregister(pChannel, false);
+	}
+
+	ClientApp::onChannelDeregister(pChannel);
+}
+
+//-------------------------------------------------------------------------------------
 void Bots::handleGameTick()
 {
 	// time_t t = ::time(NULL);
@@ -346,7 +395,7 @@ Network::Channel* Bots::findChannelByEntityCall(EntityCallAbstract& entityCall)
 //-------------------------------------------------------------------------------------
 PyObject* Bots::tryGetEntity(COMPONENT_ID componentID, ENTITY_ID eid)
 {
-	ClientObject* pClient = findClientByAppID(componentID);
+	ClientObject* pClient = findClientByAppID(static_cast<int32>(componentID));
 
 	if (pClient)
 		return pClient->tryGetEntity(componentID, eid);
@@ -428,7 +477,7 @@ PyObject* Bots::__py_addBots(PyObject* self, PyObject* args)
 //-------------------------------------------------------------------------------------	
 PyObject* Bots::__py_setScriptLogType(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount != 1)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::scriptLogType(): args error!");

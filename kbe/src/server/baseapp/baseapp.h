@@ -517,9 +517,6 @@ public:
 	static PyObject* __py_getFlags(PyObject* self, PyObject* args);
 	
 protected:
-	// python解释器保活
-	ScriptTimers											asyncTimerTimers_;
-
 	TimerHandle												loopCheckTimerHandle_;
 
 	// globalBases

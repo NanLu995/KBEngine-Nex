@@ -140,7 +140,7 @@ TEMPLATE_SCRIPT_INIT(template<typename T>, EntityGarbages<T>, EntityGarbages, 0,
 template<typename T>
 int EntityGarbages<T>::mp_length(PyObject * self)
 {
-	return (int)static_cast<EntityGarbages*>(self)->getEntities().size();
+	return static_cast<int>(static_cast<EntityGarbages*>(self)->getEntities().size());
 }
 	
 //-------------------------------------------------------------------------------------

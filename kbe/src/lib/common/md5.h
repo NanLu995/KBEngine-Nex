@@ -5,6 +5,7 @@
 
 #include "openssl/md5.h"
 #include <string>
+#include <cstddef>
 
 namespace KBEngine
 {
@@ -16,10 +17,10 @@ class KBE_MD5
 {
 public:
 	KBE_MD5();
-	KBE_MD5(const void * data, int numBytes);
+	KBE_MD5(const void * data, size_t numBytes);
 	~KBE_MD5();
 
-	void append(const void * data, int numBytes);
+	void append(const void * data, size_t numBytes);
 	const unsigned char* getDigest();
 	std::string getDigestStr();
 
@@ -33,7 +34,7 @@ public:
 
 	bool operator<( const KBE_MD5 & other ) const;
 
-	static std::string getDigest(const void * data, int numBytes);
+	static std::string getDigest(const void * data, size_t numBytes);
 
 	bool isFinal() const{ return isFinal_; }
 

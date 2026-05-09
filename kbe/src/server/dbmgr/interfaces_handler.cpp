@@ -490,7 +490,7 @@ bool InterfacesHandler_Interfaces::reconnect()
 		FD_SET((int)(*pInterfacesChannel->pEndPoint()), &fwds);
 		
 		bool connected = false;
-		int selgot = select((*pInterfacesChannel->pEndPoint())+1, &frds, &fwds, NULL, &tv);
+		int selgot = select(static_cast<int>((*pInterfacesChannel->pEndPoint()) + 1), &frds, &fwds, NULL, &tv);
 		if(selgot > 0)
 		{
 			int error;

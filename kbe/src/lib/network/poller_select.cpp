@@ -3,12 +3,14 @@
 
 #include "poller_select.h"
 #include "helper/profile.h"
+#include <limits>
 
 namespace KBEngine { 
 
-#ifndef HAS_EPOLL
-
-ProfileVal g_idleProfile("Idle");
+namespace
+{
+ProfileVal g_selectIdleProfile("Idle");
+}
 
 namespace Network
 {
@@ -32,14 +34,26 @@ void SelectPoller::handleNotifications(int &countReady,
 #if KBE_PLATFORM == PLATFORM_WIN32
 	for (unsigned i=0; i < readFDs.fd_count; ++i)
 	{
-		int fd = readFDs.fd_array[ i ];
+		SOCKET sock = readFDs.fd_array[i];
+		if (sock > static_cast<SOCKET>(std::numeric_limits<int>::max()))
+		{
+			continue;
+		}
+
+		int fd = static_cast<int>(sock);
 		--countReady;
 		this->triggerRead(fd);
 	}
 
 	for (unsigned i=0; i < writeFDs.fd_count; ++i)
 	{
-		int fd = writeFDs.fd_array[ i ];
+		SOCKET sock = writeFDs.fd_array[i];
+		if (sock > static_cast<SOCKET>(std::numeric_limits<int>::max()))
+		{
+			continue;
+		}
+
+		int fd = static_cast<int>(sock);
 		--countReady;
 		this->triggerWrite(fd);
 	}
@@ -80,7 +94,7 @@ int SelectPoller::processPendingEvents(double maxWait)
 		(int)((maxWait - (double)nextTimeout.tv_sec) * 1000000.0);
 
 #if ENABLE_WATCHERS
-	g_idleProfile.start();
+	g_selectIdleProfile.start();
 #else
 	uint64 startTime = timestamp();
 #endif
@@ -97,15 +111,15 @@ int SelectPoller::processPendingEvents(double maxWait)
 	else
 #endif
 	{
-		countReady = select(fdLargest_+1, &readFDs,
+		countReady = select(static_cast<int>(fdLargest_ + 1), &readFDs,
 				fdWriteCount_ ? &writeFDs : NULL, NULL, &nextTimeout);
 	}
 
 	KBEConcurrency::onEndMainThreadIdling();
 
 #if ENABLE_WATCHERS
-	g_idleProfile.stop();
-	spareTime_ += g_idleProfile.lastTime_;
+	g_selectIdleProfile.stop();
+	spareTime_ += g_selectIdleProfile.lastTime_;
 #else
 	spareTime_ += timestamp() - startTime;
 #endif
@@ -249,8 +263,6 @@ bool SelectPoller::doDeregisterForWrite(int fd)
 	--fdWriteCount_;
 	return true;
 }
-
-#endif // HAS_EPOLL
 
 }
 }

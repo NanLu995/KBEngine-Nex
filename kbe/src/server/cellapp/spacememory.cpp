@@ -150,7 +150,7 @@ PyObject* SpaceMemory::__py_AddSpaceGeometryMapping(PyObject* self, PyObject* ar
 	PyObject* py_params = NULL;
 	std::map< int, std::string > params;
 	
-	int argCount = PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	if(argCount < 3 || argCount > 5)
 	{
 		PyErr_Format(PyExc_AssertionError, "KBEngine::addSpaceGeometryMapping: (argssize[spaceID, mapper, path, shouldLoadOnServer] < 3 || > 5) error!");

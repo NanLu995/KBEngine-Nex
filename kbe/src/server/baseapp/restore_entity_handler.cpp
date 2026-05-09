@@ -181,7 +181,7 @@ bool RestoreEntityHandler::process()
 			}
 		}
 		
-		if(spaceCellCount != (int)restoreSpaces_.size())
+		if(spaceCellCount != static_cast<int>(restoreSpaces_.size()))
 			return true;
 
 		// 通知其他baseapp， space恢复了cell

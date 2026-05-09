@@ -172,7 +172,7 @@ int KBCMD::creatDir(const char *pDir)
 	}
 
 	pszDir = strdup(pDir);
-	iLen = strlen(pszDir);
+	iLen = static_cast<int>(strlen(pszDir));
 
 	// 创建中间目录  
 	for (i = 0; i < iLen; i++)

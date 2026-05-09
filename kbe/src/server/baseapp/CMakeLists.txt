@@ -47,7 +47,9 @@ target_compile_definitions(baseapp PUBLIC  LOG4CXX_STATIC)
 
 # ---------------- Python ----------------
 target_link_libraries(baseapp PRIVATE python_interface)
-target_link_options(baseapp PRIVATE -Wl,-export-dynamic)
+if(NOT APPLE)
+    target_link_options(baseapp PRIVATE -Wl,-export-dynamic)
+endif()
 
 # ---------------- OpenSSL ----------------
 target_link_libraries(baseapp PRIVATE KBEOpenSSL::SSL)

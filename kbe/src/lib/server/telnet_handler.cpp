@@ -6,6 +6,7 @@
 #include "network/bundle.h"
 #include "network/endpoint.h"
 #include "network/network_interface.h"
+#include "network/poller_iocp.h"
 #include "pyscript/script.h"
 
 #ifndef CODE_INLINE
@@ -192,9 +193,9 @@ void TelnetHandler::historyCommandCheck()
 		historyCommand_.pop_front();
 
 	if(historyCommandIndex_ < 0)
-		historyCommandIndex_ = historyCommand_.size() - 1;
+		historyCommandIndex_ = static_cast<int8>(historyCommand_.size() - 1);
 
-	if(historyCommandIndex_ > (int)historyCommand_.size() - 1)
+	if(historyCommandIndex_ > static_cast<int>(historyCommand_.size()) - 1)
 		historyCommandIndex_ = 0; 
 }
 
@@ -220,7 +221,7 @@ Network::Reason TelnetHandler::checkLastErrors()
 	int err;
 	Network::Reason reason;
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 	err = errno;
 
 	switch (err)
@@ -260,6 +261,50 @@ int	TelnetHandler::handleInputNotification(int fd)
 	KBE_ASSERT((*pEndPoint_) == fd);
 
 	char data[1024] = {0};
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+	if (Network::IocpPoller* pIocpPoller = dynamic_cast<Network::IocpPoller*>(pNetworkInterface_->dispatcher().pPoller()))
+	{
+		// IOCP 模式下数据已经由 WSARecv completion 读入 poller 队列。
+		// 这里不能再调用同步 recv，否则会读到 WSAEWOULDBLOCK，表现为 telnet
+		// 能连接但命令永远进不到 TelnetHandler。
+		std::vector<char> recvData;
+		bool disconnected = false;
+		DWORD errorCode = 0;
+		if (!pIocpPoller->takeTcpReceivedData(fd, recvData, disconnected, errorCode))
+		{
+			return 0;
+		}
+
+		if (errorCode != 0 || disconnected)
+		{
+			pTelnetServer_->onTelnetHandlerClosed(fd, this);
+			return 0;
+		}
+
+		if (recvData.empty())
+		{
+			return 0;
+		}
+
+		if (state_ == TELNET_STATE_READONLY)
+		{
+			return 0;
+		}
+
+		size_t offset = 0;
+		while (offset < recvData.size())
+		{
+			const size_t chunkSize = std::min(sizeof(data), recvData.size() - offset);
+			memcpy(data, recvData.data() + offset, chunkSize);
+			onRecvInput(data, static_cast<int>(chunkSize));
+			offset += chunkSize;
+		}
+
+		return 0;
+	}
+#endif
+
 	int recvsize = pEndPoint_->recv(data, sizeof(data));
 
 	if(recvsize == -1)
@@ -290,7 +335,6 @@ void TelnetHandler::onRecvInput(const char *buffer, int size)
 	while (idx < size)
 	{
 		char c = buffer[idx++];
-
 		switch (c)
 		{
 		case '\r':
@@ -315,7 +359,6 @@ void TelnetHandler::onRecvInput(const char *buffer, int size)
 			{
 				return;
 			}
-
 			break;
 		}
 		case 8:		// 退格
@@ -366,17 +409,17 @@ void TelnetHandler::onRecvInput(const char *buffer, int size)
 				// 以避免客户端触发命令操作
 				vt100cmd[0] = '^';
 				command_.insert(currPos_, vt100cmd);
-				currPos_ += vt100cmd.length();
+				currPos_ += static_cast<int32>(vt100cmd.length());
 
 				if (currPos_ == (int32)command_.length())
 				{
-					pEndPoint_->send(vt100cmd.c_str(), vt100cmd.size());
+					pEndPoint_->send(vt100cmd.c_str(), static_cast<int>(vt100cmd.size()));
 				}
 				else
 				{
 					std::string s = command_.substr(currPos_ - vt100cmd.length(), command_.size() - currPos_ + vt100cmd.length());
 					s += fmt::format("\33[{}D", command_.size() - currPos_);
-					pEndPoint_->send(s.c_str(), s.size());
+					pEndPoint_->send(s.c_str(), static_cast<int>(s.size()));
 				}
 			}
 			break;
@@ -401,7 +444,7 @@ void TelnetHandler::onRecvInput(const char *buffer, int size)
 				//作回显
 				if (state_ != TELNET_STATE_PASSWD)
 				{
-					pEndPoint_->send(s.c_str(), s.size());
+					pEndPoint_->send(s.c_str(), static_cast<int>(s.size()));
 				}
 				
 				command_.insert(currPos_, s);
@@ -421,7 +464,7 @@ void TelnetHandler::checkAfterStr()
 		std::string s = "";
 		s = command_.substr(currPos_, command_.size() - currPos_);
 		s += fmt::format("\33[{}D", s.size());
-		pEndPoint_->send(s.c_str(), s.size());
+		pEndPoint_->send(s.c_str(), static_cast<int>(s.size()));
 	}
 }
 
@@ -430,10 +473,10 @@ bool TelnetHandler::checkUDLR(const std::string &cmd)
 {
 	if (cmd.find(TELNET_CMD_UP) != std::string::npos)		// 上 
 	{
-		pEndPoint_->send(TELNET_CMD_MOVE_FOCUS_LEFT_MAX, strlen(TELNET_CMD_MOVE_FOCUS_LEFT_MAX));
+		pEndPoint_->send(TELNET_CMD_MOVE_FOCUS_LEFT_MAX, static_cast<int>(strlen(TELNET_CMD_MOVE_FOCUS_LEFT_MAX)));
 		sendDelChar();
 		std::string startstr = getInputStartString();
-		pEndPoint_->send(startstr.c_str(), startstr.size());
+		pEndPoint_->send(startstr.c_str(), static_cast<int>(startstr.size()));
 		resetStartPosition();
 
 		if(!getingHistroyCmd_)
@@ -443,17 +486,17 @@ bool TelnetHandler::checkUDLR(const std::string &cmd)
 		}
 
 		std::string s = getHistoryCommand(false);
-		pEndPoint_->send(s.c_str(), s.size());
+		pEndPoint_->send(s.c_str(), static_cast<int>(s.size()));
 		command_ = s;
-		currPos_ = s.size();
+		currPos_ = static_cast<int32>(s.size());
 		return true;
 	}
 	else if (cmd.find(TELNET_CMD_DOWN) != std::string::npos)	// 下
 	{
-		pEndPoint_->send(TELNET_CMD_MOVE_FOCUS_LEFT_MAX, strlen(TELNET_CMD_MOVE_FOCUS_LEFT_MAX));
+		pEndPoint_->send(TELNET_CMD_MOVE_FOCUS_LEFT_MAX, static_cast<int>(strlen(TELNET_CMD_MOVE_FOCUS_LEFT_MAX)));
 		sendDelChar();
 		std::string startstr = getInputStartString();
-		pEndPoint_->send(startstr.c_str(), startstr.size());
+		pEndPoint_->send(startstr.c_str(), static_cast<int>(startstr.size()));
 		resetStartPosition();
 
 		if(!getingHistroyCmd_)
@@ -463,15 +506,15 @@ bool TelnetHandler::checkUDLR(const std::string &cmd)
 		}
 
 		std::string s = getHistoryCommand(true);
-		pEndPoint_->send(s.c_str(), s.size());
+		pEndPoint_->send(s.c_str(), static_cast<int>(s.size()));
 		command_ = s;
-		currPos_ = s.size();
+		currPos_ = static_cast<int32>(s.size());
 		return true;
 	}
 	else if (cmd.find(TELNET_CMD_RIGHT) != std::string::npos)	// 右
 	{
-		int cmdlen = strlen(TELNET_CMD_RIGHT);
-		if(currPos_ < (int)command_.size())
+		int cmdlen = static_cast<int>(strlen(TELNET_CMD_RIGHT));
+		if(currPos_ < static_cast<int>(command_.size()))
 		{
 			currPos_++;
 			pEndPoint_->send(TELNET_CMD_RIGHT, cmdlen);
@@ -480,7 +523,7 @@ bool TelnetHandler::checkUDLR(const std::string &cmd)
 	}
 	else if (cmd.find(TELNET_CMD_LEFT) != std::string::npos)	// 左 
 	{
-		int cmdlen = strlen(TELNET_CMD_LEFT);
+		int cmdlen = static_cast<int>(strlen(TELNET_CMD_LEFT));
 		if(currPos_ > 0)
 		{
 			currPos_--;
@@ -493,7 +536,7 @@ bool TelnetHandler::checkUDLR(const std::string &cmd)
 		if (currPos_ > 0)
 		{
 			std::string cmdstr = fmt::format("\033[{}D", currPos_);
-			pEndPoint_->send(cmdstr.c_str(), cmdstr.length());
+			pEndPoint_->send(cmdstr.c_str(), static_cast<int>(cmdstr.length()));
 			currPos_ = 0;
 		}
 		return true;
@@ -503,8 +546,8 @@ bool TelnetHandler::checkUDLR(const std::string &cmd)
 		if (currPos_ != (int32)command_.length())
 		{
 			std::string cmdstr = fmt::format("\033[{}C", command_.length() - currPos_);
-			pEndPoint_->send(cmdstr.c_str(), cmdstr.length());
-			currPos_ = command_.length();
+			pEndPoint_->send(cmdstr.c_str(), static_cast<int>(cmdstr.length()));
+			currPos_ = static_cast<int32>(command_.length());
 		}
 		return true;
 	}
@@ -552,7 +595,7 @@ bool TelnetHandler::processCommand()
 			state_ = (TELNET_STATE)pTelnetServer_->deflayer();
 			
 			std::string s = getWelcome();
-			pEndPoint_->send(s.c_str(), s.size());
+			pEndPoint_->send(s.c_str(), static_cast<int>(s.size()));
 			command_ = "";
 
 			sendEnter();
@@ -589,7 +632,7 @@ bool TelnetHandler::processCommand()
 	{
 		historyCommand_.push_back(command_);
 		historyCommandCheck();
-		historyCommandIndex_ = historyCommand_.size() - 1;
+		historyCommandIndex_ = static_cast<int8>(historyCommand_.size() - 1);
 	}
 
 	std::string cmd = command_;
@@ -608,7 +651,7 @@ bool TelnetHandler::processCommand()
 	else if(cmd == ":help")
 	{
 		std::string str = help();
-		pEndPoint_->send(str.c_str(), str.size());
+		pEndPoint_->send(str.c_str(), static_cast<int>(str.size()));
 		sendNewLine();
 		return true;
 	}
@@ -623,7 +666,7 @@ bool TelnetHandler::processCommand()
 	{
 		state_ = TELNET_STATE_QUIT;
 		
-		pTelnetServer_->closeHandler((*pEndPoint_), this);
+		pTelnetServer_->closeHandler(static_cast<int>((*pEndPoint_)), this);
 		return false;
 	}
 	else if(cmd.find(":cprofile") == 0)
@@ -646,7 +689,7 @@ bool TelnetHandler::processCommand()
 				timelen = 10;
 		}
 		std::string str = fmt::format("\r\nWaiting for {} secs.\r\n", timelen);
-		pEndPoint_->send(str.c_str(), str.size());
+		pEndPoint_->send(str.c_str(), static_cast<int>(str.size()));
 		
 		std::string profileName = KBEngine::StringConv::val2str(KBEngine::genUUID64());
 
@@ -677,7 +720,7 @@ bool TelnetHandler::processCommand()
 				timelen = 10;
 		}
 		std::string str = fmt::format("\r\nWaiting for {} secs.\r\n", timelen);
-		pEndPoint_->send(str.c_str(), str.size());
+		pEndPoint_->send(str.c_str(), static_cast<int>(str.size()));
 
 		std::string profileName = KBEngine::StringConv::val2str(KBEngine::genUUID64());
 
@@ -737,7 +780,7 @@ bool TelnetHandler::processCommand()
 				timelen = 10;
 		}
 		std::string str = fmt::format("\r\nWaiting for {} secs.\r\n", timelen);
-		pEndPoint_->send(str.c_str(), str.size());
+		pEndPoint_->send(str.c_str(), static_cast<int>(str.size()));
 
 		std::string profileName = KBEngine::StringConv::val2str(KBEngine::genUUID64());
 
@@ -769,7 +812,7 @@ bool TelnetHandler::processCommand()
 		}
 
 		std::string str = fmt::format("\r\nWaiting for {} secs.\r\n", timelen);
-		pEndPoint_->send(str.c_str(), str.size());
+		pEndPoint_->send(str.c_str(), static_cast<int>(str.size()));
 
 		std::string profileName = KBEngine::StringConv::val2str(KBEngine::genUUID64());
 
@@ -855,7 +898,7 @@ void TelnetHandler::processBackSpace()
 //-------------------------------------------------------------------------------------
 void TelnetHandler::sendEnter()
 {
-	pEndPoint_->send(TELNET_CMD_NEWLINE, strlen(TELNET_CMD_NEWLINE));
+	pEndPoint_->send(TELNET_CMD_NEWLINE, static_cast<int>(strlen(TELNET_CMD_NEWLINE)));
 }
 
 //-------------------------------------------------------------------------------------
@@ -867,7 +910,7 @@ void TelnetHandler::sendDelChar()
 		{
 			command_.erase(currPos_ - 1, 1);
 			currPos_--;
-			pEndPoint_->send(TELNET_CMD_DEL, strlen(TELNET_CMD_DEL));
+			pEndPoint_->send(TELNET_CMD_DEL, static_cast<int>(strlen(TELNET_CMD_DEL)));
 		}
 	}
 }
@@ -876,7 +919,7 @@ void TelnetHandler::sendDelChar()
 void TelnetHandler::sendNewLine()
 {
 	std::string startstr = getInputStartString();
-	pEndPoint_->send(startstr.c_str(), startstr.size());
+	pEndPoint_->send(startstr.c_str(), static_cast<int>(startstr.size()));
 	resetStartPosition();
 	currPos_ = 0;
 }
@@ -922,7 +965,7 @@ void TelnetHandler::sendBackSpace()
 
 			char cmd[] = { 8, '\0' };
 			pEndPoint_->send(cmd, sizeof(cmd));
-			pEndPoint_->send(TELNET_CMD_DEL, strlen(TELNET_CMD_DEL));
+			pEndPoint_->send(TELNET_CMD_DEL, static_cast<int>(strlen(TELNET_CMD_DEL)));
 		}
 	}
 }
@@ -930,10 +973,10 @@ void TelnetHandler::sendBackSpace()
 //-------------------------------------------------------------------------------------
 void TelnetHandler::resetStartPosition()
 {
-	pEndPoint_->send(TELNET_CMD_MOVE_FOCUS_LEFT_MAX, strlen(TELNET_CMD_MOVE_FOCUS_LEFT_MAX));
+	pEndPoint_->send(TELNET_CMD_MOVE_FOCUS_LEFT_MAX, static_cast<int>(strlen(TELNET_CMD_MOVE_FOCUS_LEFT_MAX)));
 	std::string startstr = getInputStartString();
 	std::string backcmd = fmt::format("\33[{}C", startstr.size());
-	pEndPoint_->send(backcmd.c_str(), backcmd.size());
+	pEndPoint_->send(backcmd.c_str(), static_cast<int>(backcmd.size()));
 }
 
 //-------------------------------------------------------------------------------------
@@ -954,7 +997,7 @@ void TelnetHandler::onProfileEnd(const std::string& datas)
 	if (datas.size() > 0)
 	{
 		sendEnter();
-		pEndPoint()->send(datas.c_str(), datas.size());
+		pEndPoint()->send(datas.c_str(), static_cast<int>(datas.size()));
 	}
 	setReadWrite();
 	sendEnter();
@@ -1007,7 +1050,7 @@ void TelnetPyTickProfileHandler::sendStream(MemoryStream* s)
 	}
 
 	pTelnetHandler_->sendEnter();
-	pTelnetHandler_->pEndPoint()->send(datas.c_str(), datas.size());
+	pTelnetHandler_->pEndPoint()->send(datas.c_str(), static_cast<int>(datas.size()));
 	//pTelnetHandler_->onProfileEnd(datas);
 }
 

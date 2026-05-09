@@ -40,6 +40,11 @@ extern int8 g_channelExternalEncryptType;
 // listen监听队列最大值
 extern uint32 g_SOMAXCONN;
 
+// Completion后端每tick最多连续处理的完成事件数量，以及连续处理的时间预算。
+// 用于避免IOCP等completion模型在断线/启动burst时长时间占用主循环。
+extern uint32 g_maxCompletionsPerTick;
+extern uint32 g_maxCompletionProcessingTimeMS;
+
 // udp握手包
 extern const char* UDP_HELLO;
 extern const char* UDP_HELLO_ACK;
@@ -59,6 +64,12 @@ extern bool g_rudp_nodelay;
 // Certificate file required for HTTPS/WSS/SSL communication
 extern std::string g_sslCertificate;
 extern std::string g_sslPrivateKey;
+
+// KBEngine.urlopen default timeout settings.
+extern uint32 g_urlopenTimeout;
+extern uint32 g_urlopenConnectTimeout;
+extern uint32 g_urlopenLowSpeedTime;
+extern uint32 g_urlopenLowSpeedLimit;
 
 // 不做通道超时检查
 #define CLOSE_CHANNEL_INACTIVITIY_DETECTION()										\

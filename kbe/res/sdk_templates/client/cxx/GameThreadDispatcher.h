@@ -6,6 +6,7 @@
 #include <queue>
 #include <mutex>
 #include <functional>
+#include <utility>
 
 class GameThreadDispatcher {
 public:

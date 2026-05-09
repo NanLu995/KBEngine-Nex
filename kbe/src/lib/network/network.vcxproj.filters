@@ -102,6 +102,9 @@
     <ClCompile Include="poller_epoll.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="poller_iocp.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="poller_select.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -231,6 +234,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="poller_epoll.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="poller_iocp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="poller_select.h">

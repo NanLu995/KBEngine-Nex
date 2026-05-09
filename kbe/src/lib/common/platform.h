@@ -26,6 +26,10 @@
 #include <functional>
 #include <cctype>
 #include <iterator>
+#include <memory>
+#include <regex>
+#include <unordered_map>
+#include <unordered_set>
 #include "common/strutil.h"
 // windows include	
 #if defined( __WIN32__ ) || defined( WIN32 ) || defined( _WIN32 )
@@ -43,9 +47,6 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h> 
-#include <unordered_map>
-#include <functional>
-#include <memory>
 #define _SCL_SECURE_NO_WARNINGS
 #else
 // linux include
@@ -65,20 +66,38 @@
 #include <netinet/tcp.h> 
 #include <netinet/ip.h>
 #include <arpa/inet.h>
-#include <tr1/unordered_map>
-#include <tr1/functional>
-#include <tr1/memory>
-#include <linux/types.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
-#include <sys/resource.h> 
+#include <sys/resource.h>
+#if defined(__linux__)
+#include <linux/types.h>
 #include <linux/errqueue.h>
+#endif
 #endif
 
 #include <signal.h>
+
+#if __cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)
+namespace std
+{
+	namespace tr1
+	{
+		using ::std::bind;
+		using ::std::function;
+		using ::std::hash;
+		using ::std::regex;
+		using ::std::regex_match;
+		using ::std::shared_ptr;
+		using ::std::unordered_map;
+		using ::std::unordered_set;
+		using ::std::weak_ptr;
+		namespace placeholders = ::std::placeholders;
+	}
+}
+#endif
 
 #if !defined( _WIN32 )
 # include <pwd.h>
@@ -122,10 +141,16 @@ namespace KBEngine
 #  define KBE_PLATFORM PLATFORM_WIN32
 #elif defined( __INTEL_COMPILER )
 #  define KBE_PLATFORM PLATFORM_INTEL
-#elif defined( __APPLE_CC__ )
+#elif defined( __APPLE__ ) || defined( __APPLE_CC__ )
 #  define KBE_PLATFORM PLATFORM_APPLE
 #else
 #  define KBE_PLATFORM PLATFORM_UNIX
+#endif
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+#define KBE_PLATFORM_UNIX_FAMILY 0
+#else
+#define KBE_PLATFORM_UNIX_FAMILY 1
 #endif
 
 #define COMPILER_MICROSOFT 0
@@ -150,7 +175,7 @@ namespace KBEngine
 #endif
 
 #if KBE_PLATFORM == PLATFORM_UNIX || KBE_PLATFORM == PLATFORM_APPLE
-#ifdef HAVE_DARWIN
+#if defined(HAVE_DARWIN) || defined(__APPLE__)
 #define KBE_PLATFORM_TEXT "MacOSX"
 #define UNIX_FLAVOUR UNIX_FLAVOUR_OSX
 #else
@@ -213,8 +238,8 @@ typedef unsigned long											ulong;
 #define const_charptr											const char*
 #define PyObject_ptr											PyObject*
 
-#define KBEShared_ptr											std::tr1::shared_ptr
-#define KBEUnordered_map										std::tr1::unordered_map
+#define KBEShared_ptr											std::shared_ptr
+#define KBEUnordered_map										std::unordered_map
 
 /* Use correct types for x64 platforms, too */
 #if KBE_COMPILER != COMPILER_GNU
@@ -600,8 +625,8 @@ inline const char * getUsername()
 
 	return username;
 #else
-	char * pUsername = cuserid(NULL);
-	return pUsername ? pUsername : "";
+	struct passwd* pwd = getpwuid(getuid());
+	return (pwd && pwd->pw_name) ? pwd->pw_name : "";
 #endif
 }
 
@@ -647,7 +672,7 @@ inline uint32 getSystemTimeDiff(uint32 oldTime, uint32 newTime)
 /* get system time */
 inline void kbe_timeofday(long *sec, long *usec)
 {
-#if defined(__unix)
+#if KBE_PLATFORM != PLATFORM_WIN32
 	struct timeval time;
 	gettimeofday(&time, NULL);
 	if (sec) *sec = time.tv_sec;

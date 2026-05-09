@@ -1,103 +1,141 @@
-#!/usr/bin/env bash
+#!/bin/sh
 set -e
 
-echo ">>> 暂未适配"
-# # ==============================
-# # 安装 KBEngine-Nex (macOS 版本)
-# # ==============================
 
-# # 默认构建类型（可通过参数覆盖）
-# KBE_CONFIG=${1:-Release}
+# =========================================
+# Build type
+# =========================================
+KBE_CONFIG=${1:-Release}
+echo "[INFO] Using build type: $KBE_CONFIG"
 
-# echo ">>> 使用构建类型: $KBE_CONFIG"
+# =========================================
+# Basic tools and dependencies (macOS)
+# =========================================
+if ! command -v git >/dev/null 2>&1; then
+    echo "[ERROR] Git is not installed."
+    echo "[INFO] Please install Git first, then rerun this script."
+    echo "[INFO] Official site: https://git-scm.com/download/mac"
+    echo "[INFO] Tutorial: https://docs.github.com/en/get-started/git-basics/set-up-git"
+    exit 1
+fi
+
+if ! command -v brew >/dev/null 2>&1; then
+    echo "[ERROR] Homebrew is not installed."
+    echo "[INFO] Please install Homebrew first, then rerun this script."
+    echo "[INFO] Official site: https://brew.sh/"
+    echo "[INFO] Install guide: https://docs.brew.sh/Installation"
+    exit 1
+fi
+
+if ! command -v xcode-select >/dev/null 2>&1; then
+    echo "[ERROR] xcode-select is not available."
+    echo "[INFO] Please install Xcode Command Line Tools first, then rerun this script."
+    echo "[INFO] Run: xcode-select --install"
+    echo "[INFO] Apple docs: https://developer.apple.com/download/all/"
+    exit 1
+fi
+
+if ! xcode-select -p >/dev/null 2>&1; then
+    echo "[ERROR] Xcode Command Line Tools are not installed."
+    echo "[INFO] Please install them first, then rerun this script."
+    echo "[INFO] Run: xcode-select --install"
+    echo "[INFO] Apple docs: https://developer.apple.com/download/all/"
+    exit 1
+fi
+
+install_brew_dep() {
+    PKG="$1"
+    if brew list --formula "$PKG" >/dev/null 2>&1; then
+        echo "[INFO] $PKG is already installed"
+        return 0
+    fi
+
+    echo "[INFO] Installing $PKG via Homebrew..."
+    brew install "$PKG"
+}
+
+install_brew_dep cmake
+install_brew_dep ninja
+install_brew_dep autoconf
+install_brew_dep automake
+install_brew_dep libtool
+install_brew_dep pkg-config
+install_brew_dep libtirpc
+
+check_required_tool() {
+    TOOL_NAME="$1"
+    if ! command -v "$TOOL_NAME" >/dev/null 2>&1; then
+        echo "[ERROR] $TOOL_NAME was not found in PATH after Homebrew installation."
+        echo "[INFO] Please ensure Homebrew bin directory is in PATH, then rerun."
+        echo "[INFO] Example for Apple Silicon: export PATH=\"/opt/homebrew/bin:$PATH\""
+        exit 1
+    fi
+}
+
+check_required_tool cmake
+check_required_tool ninja
+check_required_tool pkg-config
+
+# =========================================
+# Check GitHub accessibility
+# =========================================
+echo "[CHECK] Trying to access GitHub repository..."
+if ! git ls-remote https://github.com/microsoft/vcpkg.git >/dev/null 2>&1; then
+    echo "[ERROR] Cannot access GitHub repository, please check network or proxy"
+    echo "[INFO] You can also use the domestic Gitee mirror, try running gitee/install_linux.sh."
+    exit 1
+fi
+echo "[SUCCESS] GitHub repository is accessible"
 
 
-# # ------------------------------
-# # 0. 检查并安装 Xcode Command Line Tools
-# # ------------------------------
-# if ! xcode-select -p >/dev/null 2>&1; then
-#     echo ">>> 安装 Xcode Command Line Tools"
-#     xcode-select --install
-#     echo "请完成安装后重新运行本脚本"
-#     exit 1
-# fi
-# echo ">>> 已检测到 Xcode Command Line Tools"
 
-# # ------------------------------
-# # 1. 检查系统版本
-# # ------------------------------
-# MACOS_VERSION=$(sw_vers -productVersion | cut -d'.' -f1)
-# if [ "$MACOS_VERSION" -lt 11 ]; then
-#     echo "错误: 需要 macOS 11.0 (Big Sur) 或更高版本，当前版本: $MACOS_VERSION"
-#     exit 1
-# fi
-# echo ">>> 系统版本检查通过: macOS $MACOS_VERSION"
+# =========================================
+# Install vcpkg
+# =========================================
+VCPKG_DIR="$HOME/kbe-vcpkg"
+if [ ! -d "$VCPKG_DIR" ] || [ ! -f "$VCPKG_DIR/bootstrap-vcpkg.sh" ]; then
+    echo "[INFO] Cloning vcpkg"
+    git clone https://github.com/microsoft/vcpkg.git "$VCPKG_DIR"
+else
+    echo "[INFO] vcpkg already exists: $VCPKG_DIR"
+fi
 
-# # ------------------------------
-# # 2. 确认 brew 已安装
-# # ------------------------------
-# if ! command -v brew >/dev/null 2>&1; then
-#     echo "错误: 未检测到 Homebrew，请先安装: https://brew.sh/"
-#     exit 1
-# fi
 
-# # ------------------------------
-# # 3. 安装依赖
-# # ------------------------------
-# BREW_DEPS=(
-#     autoconf
-#     libtirpc
-#     cmake
-#     pkg-config
-#     libffi
-#     ossp-uuid
-# )
+git -C "$VCPKG_DIR" reset --hard HEAD
+git -C "$VCPKG_DIR" pull
 
-# for pkg in "${BREW_DEPS[@]}"; do
-#     if ! brew ls --versions "$pkg" >/dev/null 2>&1; then
-#         echo ">>> 安装 $pkg"
-#         brew install "$pkg"
-#     else
-#         echo ">>> 已安装 $pkg"
-#     fi
-# done
 
-# # 注意：brew 装的 mysql-client 可能需要手动配置链接
-# # if [ -d "$(brew --prefix mysql-client)" ]; then
-# #     export PATH="$(brew --prefix mysql-client)/bin:$PATH"
-# #     export LDFLAGS="-L$(brew --prefix mysql-client)/lib $LDFLAGS"
-# #     export CPPFLAGS="-I$(brew --prefix mysql-client)/include $CPPFLAGS"
-# #     echo ">>> 已配置 mysql-client 路径"
-# # fi
+NINJA_BIN=$(command -v ninja)
+export CMAKE_MAKE_PROGRAM="$NINJA_BIN"
 
-# # ------------------------------
-# # 4. vcpkg
-# # ------------------------------
-# VCPKG_DIR=~/kbe-vcpkg
-# if [ ! -d "$VCPKG_DIR" ] || [ ! -f "$VCPKG_DIR/bootstrap-vcpkg.sh" ]; then
-#     echo ">>> 克隆并安装 vcpkg"
-#     git clone https://github.com/microsoft/vcpkg.git "$VCPKG_DIR"
-# else
-#     echo ">>> vcpkg 已存在: $VCPKG_DIR"
-# fi
 
-# OLDPWD=$(pwd)
-# cd "$VCPKG_DIR"
-# ./bootstrap-vcpkg.sh
-# cd "$OLDPWD"
+OLDPWD=$(pwd)
+cd "$VCPKG_DIR"
+./bootstrap-vcpkg.sh
+cd "$OLDPWD"
 
-# # ------------------------------
-# # 5. 构建 KBEngine-Nex
-# # ------------------------------
-# echo ">>> ./kbe/src/"
-# cd "./kbe/src/"
 
-# echo ">>> 配置 CMake"
-# cmake -B build -S . \
-#     -DCMAKE_TOOLCHAIN_FILE=$VCPKG_DIR/scripts/buildsystems/vcpkg.cmake \
-#     -DKBE_CONFIG=$KBE_CONFIG
+export CMAKE_MAKE_PROGRAM="$NINJA_BIN"
+# =========================================
+# Build KBEngine-Nex
+# =========================================
+echo "[INFO] Entering ./kbe/src/"
+cd "./kbe/src/"
 
-# echo ">>> 开始编译 KBEngine-Nex"
-# cmake --build build -j$(sysctl -n hw.ncpu)
+# If the existing build dir was generated by another backend (e.g. Unix Makefiles),
+# clean it to avoid generator mismatch when switching to Ninja.
+if [ -f build/CMakeCache.txt ] && ! grep -q "CMAKE_GENERATOR:INTERNAL=Ninja" build/CMakeCache.txt; then
+    echo "[INFO] Existing build directory uses a non-Ninja generator, recreating build/"
+    rm -rf build
+fi
 
-# echo ">>> 安装完成 🎉"
+echo "[INFO] Configuring CMake"
+cmake -G Ninja -B build -S . \
+    -DCMAKE_MAKE_PROGRAM="$NINJA_BIN" \
+    -DCMAKE_TOOLCHAIN_FILE="$VCPKG_DIR/scripts/buildsystems/vcpkg.cmake" \
+    -DKBE_CONFIG="$KBE_CONFIG"
+
+echo "[INFO] Building KBEngine-Nex"
+cmake --build build --parallel
+
+echo "[INFO] Installation complete"

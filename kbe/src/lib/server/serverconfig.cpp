@@ -158,6 +158,26 @@ bool ServerConfig::loadConfig(std::string fileName)
 		if(callback_timeout_ < 5.f)
 			callback_timeout_ = 5.f;
 	}
+
+	rootNode = xml->getRootNode("urlopen");
+	if(rootNode != NULL)
+	{
+		TiXmlNode* childnode = xml->enterNode(rootNode, "timeout");
+		if(childnode)
+			Network::g_urlopenTimeout = KBE_MAX(0, xml->getValInt(childnode));
+
+		childnode = xml->enterNode(rootNode, "connectTimeout");
+		if(childnode)
+			Network::g_urlopenConnectTimeout = KBE_MAX(0, xml->getValInt(childnode));
+
+		childnode = xml->enterNode(rootNode, "lowSpeedTime");
+		if(childnode)
+			Network::g_urlopenLowSpeedTime = KBE_MAX(0, xml->getValInt(childnode));
+
+		childnode = xml->enterNode(rootNode, "lowSpeedLimit");
+		if(childnode)
+			Network::g_urlopenLowSpeedLimit = KBE_MAX(0, xml->getValInt(childnode));
+	}
 	
 	rootNode = xml->getRootNode("thread_pool");
 	if(rootNode != NULL)
@@ -266,6 +286,18 @@ bool ServerConfig::loadConfig(std::string fileName)
 			childnode1 = xml->enterNode(childnode, "external");
 			if(childnode1)
 				channelCommon_.extWriteBufferSize = KBE_MAX(0, xml->getValInt(childnode1));
+		}
+
+		childnode = xml->enterNode(rootNode, "completionBudget");
+		if (childnode)
+		{
+			TiXmlNode* childnode1 = xml->enterNode(childnode, "maxCompletionsPerTick");
+			if (childnode1)
+				Network::g_maxCompletionsPerTick = KBE_MAX(1, xml->getValInt(childnode1));
+
+			childnode1 = xml->enterNode(childnode, "maxProcessingTimeMS");
+			if (childnode1)
+				Network::g_maxCompletionProcessingTimeMS = KBE_MAX(0, xml->getValInt(childnode1));
 		}
 
 		childnode = xml->enterNode(rootNode, "windowOverflow");
@@ -1759,7 +1791,7 @@ void ServerConfig::updateInfos(bool isPrint, COMPONENT_TYPE componentType, COMPO
 	std::string infostr = "";
 
 	for (size_t i = 0; i < _dbmgrInfo.dbInterfaceInfos.size(); ++i)
-		_dbmgrInfo.dbInterfaceInfos[i].index = i;
+		_dbmgrInfo.dbInterfaceInfos[i].index = static_cast<int>(i);
 
 	if (g_dbmgr_addDefaultAddress)
 	{

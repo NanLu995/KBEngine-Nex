@@ -51,6 +51,10 @@ public:
 		return cellappID_;
 	}
 
+	size_t bufferedMessagesSize() const {
+		return bufferedSendToClientMessages_.size();
+	}
+
 	void cellappID(COMPONENT_ID cid) {
 		cellappID_ = cid;
 	}

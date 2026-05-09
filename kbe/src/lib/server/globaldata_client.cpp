@@ -120,13 +120,13 @@ void GlobalDataClient::onDataChanged(PyObject* key, PyObject* value, bool isDele
 		(*pBundle) << dataType;
 		(*pBundle) << isDelete;
 
-		slen = skey.size();
+		slen = static_cast<ArraySize>(skey.size());
 		(*pBundle) << slen;
 		(*pBundle).assign(skey.data(), slen);
 
 		if(!isDelete)
 		{
-			slen = sval.size();
+			slen = static_cast<ArraySize>(sval.size());
 			(*pBundle) << slen;
 			(*pBundle).assign(sval.data(), slen);
 		}

@@ -26,6 +26,7 @@
 #include "baseappmgr/baseappmgr_interface.h"
 #include "cellappmgr/cellappmgr_interface.h"
 #include "loginapp/loginapp_interface.h"
+#include <limits>
 
 namespace KBEngine{
 
@@ -850,7 +851,7 @@ void Dbmgr::executeRawDatabaseCommand(Network::Channel* pChannel,
 //-------------------------------------------------------------------------------------
 PyObject* Dbmgr::__py_executeRawDatabaseCommand(PyObject* self, PyObject* args)
 {
-	int argCount = (int)PyTuple_Size(args);
+	Py_ssize_t argCount = PyTuple_Size(args);
 	PyObject* pycallback = NULL;
 	PyObject* pyDBInterfaceName = NULL;
 	int ret = 0;
@@ -1169,7 +1170,7 @@ void Dbmgr::queryEntity(Network::Channel* pChannel, uint16 dbInterfaceIndex, COM
 //-------------------------------------------------------------------------------------
 void Dbmgr::syncEntityStreamTemplate(Network::Channel* pChannel, KBEngine::MemoryStream& s)
 {
-	int rpos = s.rpos();
+	size_t rpos = s.rpos();
 	EntityTables::ENTITY_TABLES_MAP::iterator iter = EntityTables::sEntityTables.begin();
 	for (; iter != EntityTables::sEntityTables.end(); ++iter)
 	{
@@ -1178,7 +1179,8 @@ void Dbmgr::syncEntityStreamTemplate(Network::Channel* pChannel, KBEngine::Memor
 
 		KBE_ASSERT(pTable);
 
-		s.rpos(rpos);
+		KBE_ASSERT(rpos <= static_cast<size_t>(std::numeric_limits<int>::max()));
+		s.rpos(static_cast<int>(rpos));
 		pTable->accountDefMemoryStream(s);
 	}
 

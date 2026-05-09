@@ -7,6 +7,18 @@
 #endif
 
 namespace {
+
+    uint32_t LoadUInt32(const unsigned char* data)
+    {
+        uint32_t value = 0;
+        memcpy(&value, data, sizeof(value));
+        return value;
+    }
+
+    void StoreUInt32(unsigned char* data, uint32_t value)
+    {
+        memcpy(data, &value, sizeof(value));
+    }
     
     union Converter32 {
         uint32_t bit_32;
@@ -284,8 +296,10 @@ void Blowfish::SetKey(const unsigned char* key, int byte_length)
     {
         EncryptBlock(&left, &right);
         
-        reinterpret_cast<uint32_t*>(sbox_)[i * 2] = left;
-        reinterpret_cast<uint32_t*>(sbox_)[i * 2 + 1] = right;
+        const int leftIndex = i * 2;
+        const int rightIndex = leftIndex + 1;
+        sbox_[leftIndex / 256][leftIndex % 256] = left;
+        sbox_[rightIndex / 256][rightIndex % 256] = right;
     }
 }
 
@@ -298,9 +312,14 @@ void Blowfish::Encrypt(unsigned char* dst, const unsigned char* src, int byte_le
     
     for (int i = 0; i < byte_length / sizeof(uint64_t); ++i)
     {
-        uint32_t* left  = &reinterpret_cast<uint32_t*>(dst)[i * 2];
-        uint32_t* right = &reinterpret_cast<uint32_t*>(dst)[i * 2 + 1];
-        EncryptBlock(left, right);
+        unsigned char* block = dst + i * sizeof(uint64_t);
+        uint32_t left = LoadUInt32(block);
+        uint32_t right = LoadUInt32(block + sizeof(uint32_t));
+
+        EncryptBlock(&left, &right);
+
+        StoreUInt32(block, left);
+        StoreUInt32(block + sizeof(uint32_t), right);
     }
 }
 
@@ -313,9 +332,14 @@ void Blowfish::Decrypt(unsigned char* dst, const unsigned char* src, int byte_le
     
     for (int i = 0; i < byte_length / sizeof(uint64_t); ++i)
     {
-        uint32_t* left  = &reinterpret_cast<uint32_t*>(dst)[i * 2];
-        uint32_t* right = &reinterpret_cast<uint32_t*>(dst)[i * 2 + 1];
-        DecryptBlock(left, right);
+        unsigned char* block = dst + i * sizeof(uint64_t);
+        uint32_t left = LoadUInt32(block);
+        uint32_t right = LoadUInt32(block + sizeof(uint32_t));
+
+        DecryptBlock(&left, &right);
+
+        StoreUInt32(block, left);
+        StoreUInt32(block + sizeof(uint32_t), right);
     }
 }
 

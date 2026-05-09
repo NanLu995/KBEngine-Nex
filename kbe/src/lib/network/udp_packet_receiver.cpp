@@ -13,6 +13,7 @@
 #include "network/event_dispatcher.h"
 #include "network/network_interface.h"
 #include "network/event_poller.h"
+#include "network/poller_iocp.h"
 #include "network/error_reporter.h"
 
 namespace KBEngine { 
@@ -76,6 +77,40 @@ bool UDPPacketReceiver::processRecv(bool expectingPacket)
 {	
 	Address	srcAddr;
 	UDPPacket* pChannelReceiveWindow = UDPPacket::createPoolObject(OBJECTPOOL_POINT);
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+	if (IocpPoller* pIocpPoller = dynamic_cast<IocpPoller*>(this->dispatcher().pPoller()))
+	{
+		// UDP/KCP 在 Windows 下也消费 IOCP completion 队列。
+		// srcAddr 来自 WSARecvFrom 的 completion context，避免这里再次 recvfrom。
+		std::vector<char> data;
+		DWORD errorCode = 0;
+		if (!pIocpPoller->takeUdpReceivedData(static_cast<int>(*pEndpoint_), data, srcAddr, errorCode))
+		{
+			UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
+			return false;
+		}
+
+		if (errorCode != 0)
+		{
+			UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
+			WSASetLastError(errorCode);
+			PacketReceiver::RecvState rstate = this->checkSocketErrors(-1, expectingPacket);
+			return rstate == PacketReceiver::RECV_STATE_CONTINUE;
+		}
+
+		if (data.empty())
+		{
+			UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
+			return false;
+		}
+
+		memcpy(pChannelReceiveWindow->data(), data.data(), data.size());
+		pChannelReceiveWindow->wpos(static_cast<uint32>(data.size()));
+	}
+	else
+#endif
+	{
 	int len = pChannelReceiveWindow->recvFromEndPoint(*pEndpoint_, &srcAddr);
 
 	if (len <= 0)
@@ -83,6 +118,7 @@ bool UDPPacketReceiver::processRecv(bool expectingPacket)
 		UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
 		PacketReceiver::RecvState rstate = this->checkSocketErrors(len, expectingPacket);
 		return rstate == PacketReceiver::RECV_STATE_CONTINUE;
+	}
 	}
 	
 	Channel* pSrcChannel = findChannel(srcAddr);
@@ -123,13 +159,28 @@ bool UDPPacketReceiver::processRecv(bool expectingPacket)
 	
 	KBE_ASSERT(pSrcChannel != NULL);
 
+	if (pSrcChannel->isDestroyed())
+	{
+		UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
+		return false;
+	}
+
 	if (pSrcChannel->condemn() > 0)
 	{
 		UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
 		return false;
 	}
-	
-	return ((UDPPacketReceiver*)pSrcChannel->pPacketReceiver())->processRecv(pChannelReceiveWindow);
+
+	PacketReceiver* pPacketReceiver = pSrcChannel->pPacketReceiver();
+	if (pPacketReceiver == NULL || pPacketReceiver->type() != PacketReceiver::UDP_PACKET_RECEIVER)
+	{
+		ERROR_MSG(fmt::format("UDPPacketReceiver::processRecv: invalid packet receiver on channel {}.\n",
+			pSrcChannel->c_str()));
+		UDPPacket::reclaimPoolObject(pChannelReceiveWindow);
+		return false;
+	}
+
+	return static_cast<UDPPacketReceiver*>(pPacketReceiver)->processRecv(pChannelReceiveWindow);
 }
 
 //-------------------------------------------------------------------------------------
@@ -185,7 +236,7 @@ PacketReceiver::RecvState UDPPacketReceiver::checkSocketErrors(int len, bool exp
 		return RECV_STATE_BREAK;
 	}
 
-#if KBE_PLATFORM == PLATFORM_UNIX
+#if KBE_PLATFORM_UNIX_FAMILY
 	if (errno == EAGAIN ||
 		errno == ECONNREFUSED ||
 		errno == EHOSTUNREACH)
@@ -217,6 +268,15 @@ PacketReceiver::RecvState UDPPacketReceiver::checkSocketErrors(int len, bool exp
 #else
 	if (wsaErr == WSAECONNRESET)
 	{
+		return RECV_STATE_CONTINUE;
+	}
+
+	if (wsaErr == ERROR_PORT_UNREACHABLE)
+	{
+		// Windows UDP/KCP 在对端关闭或端口不可达时可能返回
+		// ERROR_PORT_UNREACHABLE(1234)。这是 ICMP 反馈，不代表本地
+		// UDP socket 坏掉；旧逻辑依赖 KCP 发送失败/超时来清理 channel，
+		// 所以这里保持静默继续，避免大量 REASON_GENERAL_NETWORK。
 		return RECV_STATE_CONTINUE;
 	}
 #endif // unix

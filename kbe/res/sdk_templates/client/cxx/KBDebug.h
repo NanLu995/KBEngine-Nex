@@ -2,7 +2,7 @@
 #include <string>
 #include <cstdarg>
 
-#if defined(__UNREAL__) || defined(UE_BUILD_DEBUG) || defined(UE_SERVER) || defined(UE_CLIENT)
+#if defined(__UNREAL__) || defined(UE_BUILD_DEBUG) || defined(UE_SERVER) || defined(UE_GAME) || defined(UE_CLIENT) || defined(UE_BUILD_DEVELOPMENT) || defined(UE_BUILD_SHIPPING)
     #define KBE_PLATFORM_UE 1
 #elif defined(CC_TARGET_PLATFORM)
     #define KBE_PLATFORM_COCOS 1

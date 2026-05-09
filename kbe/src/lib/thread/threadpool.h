@@ -25,7 +25,9 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <fcntl.h>
+#if defined(__linux__)
 #include <sys/epoll.h>
+#endif
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <pthread.h>	

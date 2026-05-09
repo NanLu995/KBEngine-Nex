@@ -6,7 +6,6 @@
 #include "Interfaces.h"
 #include "KBEngine.h"
 #include "MessageReader.h"
-#include "TcpClient.h"
 
 namespace KBEngine
 {
@@ -37,7 +36,7 @@ void NetworkInterfaceBase::reset()
 void NetworkInterfaceBase::close()
 {
 	// INFO_MSG("NetworkInterfaceBase::close(): network closed!");
-	// KBENGINE_EVENT_FIRE(KBEventTypes::onDisconnected, std::make_shared<UKBEventData_onDisconnected>());
+	// KBENGINE_EVENT_FIRE_ALL(KBEventTypes::onDisconnected, std::make_shared<UKBEventData_onDisconnected>());
 	//
 	// KBE_SAFE_RELEASE(pFilter_);
 	//
