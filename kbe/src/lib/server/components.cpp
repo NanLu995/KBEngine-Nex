@@ -857,15 +857,20 @@ bool Components::updateComponentInfos(const Components::ComponentInfos* info)
 		}
 
 		int len = epListen.recv(packet.data(), recvsize);
+		if(len <= 0)
+		{
+			WARNING_MSG(fmt::format("Components::updateComponentInfos: query {}({}) got no response from {}, recvsize={}; keep component for retry.\n",
+				COMPONENT_NAME_EX(info->componentType), info->cid, info->pIntAddr->c_str(), len));
+
+			return true;
+		}
+
 		packet.wpos(len);
-		
+
 		if(recvsize != len)
 		{
-			WARNING_MSG(fmt::format("Components::updateComponentInfos: packet invalid(recvsize({}) != ctype_cid_len({}).\n" 
+			WARNING_MSG(fmt::format("Components::updateComponentInfos: packet invalid(recvsize({}) != ctype_cid_len({}).\n"
 				, len, recvsize));
-			
-			if(len == 0)
-				return false;
 
 			return true;
 		}
