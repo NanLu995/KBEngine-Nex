@@ -230,9 +230,6 @@ protected:
 
 	TimerHandle												gameTimer_;
 
-	// asyncio专用timer容器：第一步保存主线程pump timer，第二步在finalise里统一取消。
-	ScriptTimers											asyncioTimers_;
-
 	// globalData
 	GlobalDataClient*										pGlobalData_;
 
@@ -257,7 +254,6 @@ entryScript_(),
 idClient_(),
 pEntities_(NULL),
 gameTimer_(),
-asyncioTimers_(),
 pGlobalData_(NULL),
 pyCallbackMgr_(),
 lastTimestamp_(timestamp()),
@@ -301,8 +297,8 @@ bool EntityApp<E>::initialize()
 		gameTimer_ = this->dispatcher().addTimer(1000000 / g_kbeSrvConfig.gameUpdateHertz(), this,
 								reinterpret_cast<void *>(TIMEOUT_GAME_TICK));
 
-		// EntityApp类组件在主线程安装asyncio timer，用来周期性推进协程。
-		ret = AsyncioHelper::installTimer(&asyncioTimers_);
+		// EntityApp类组件在主线程安装底层dispatcher timer，用来周期性推进协程。
+		ret = AsyncioHelper::installTimer(this->dispatcher());
 	}
 
 	lastTimestamp_ = timestamp();
@@ -324,7 +320,6 @@ void EntityApp<E>::finalise(void)
 
 	// 再取消游戏timer并继续原有实体清理流程。
 	gameTimer_.cancel();
-	asyncioTimers_.cancelAll();
 
 	WATCH_FINALIZE;
 	

@@ -87,8 +87,8 @@ bool PythonApp::initializeEnd()
 	gameTickTimerHandle_ = this->dispatcher().addTimer(1000000 / g_kbeSrvConfig.gameUpdateHertz(), this,
 		reinterpret_cast<void *>(TIMEOUT_GAME_TICK));
 
-	// PythonApp类组件在主线程安装asyncio timer，用来周期性推进协程。
-	if (!AsyncioHelper::installTimer(&scriptTimers_))
+	// PythonApp类组件在主线程安装底层dispatcher timer，用来周期性推进协程。
+	if (!AsyncioHelper::installTimer(this->dispatcher()))
 		return false;
 	
 	return true;

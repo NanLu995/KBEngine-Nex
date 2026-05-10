@@ -8,7 +8,10 @@
 
 namespace KBEngine {
 
-	class ScriptTimers;
+	namespace Network
+	{
+		class EventDispatcher;
+	}
 
 	class AsyncioHelper
 	{
@@ -29,9 +32,9 @@ namespace KBEngine {
 		 * 安装一个主线程timer，用来非阻塞推进asyncio事件循环。
 		 * 按asyncioRepeatOffset配置决定是否启用。
 		 * 初始化asyncio event loop。
-		 * 注册KBEngine timer，每次tick只pump一次loop。
+		 * 注册底层EventDispatcher timer，避免被gameUpdateHertz量化。
 		 */
-		static bool installTimer(ScriptTimers* scriptTimers);
+		static bool installTimer(Network::EventDispatcher& dispatcher);
 
 		/**
 		 * 关闭asyncio调度器，取消未完成的任务。
