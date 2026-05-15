@@ -92,6 +92,48 @@ jobs:
             fi
           done
 
+      - name: Bundle Linux runtime libraries
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y patchelf
+
+          lib_dir="kbe/bin/server/lib"
+          mkdir -p "$lib_dir"
+          : > /tmp/kbe-runtime-libs.txt
+
+          for bin in kbe/bin/server/*; do
+            if [ -f "$bin" ] && file "$bin" | grep -q "ELF"; then
+              ldd "$bin" | awk '
+                /=> \// { print $3 }
+                /^[[:space:]]*\// { print $1 }
+              ' >> /tmp/kbe-runtime-libs.txt
+            fi
+          done
+
+          sort -u /tmp/kbe-runtime-libs.txt | while read -r lib; do
+            [ -n "$lib" ] || continue
+            [ -f "$lib" ] || continue
+            base="$(basename "$lib")"
+            case "$base" in
+              ld-linux*.so.*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|libresolv.so.*|linux-vdso*.so.*)
+                continue
+                ;;
+            esac
+            cp -L "$lib" "$lib_dir/"
+          done
+
+          for bin in kbe/bin/server/*; do
+            if [ -f "$bin" ] && file "$bin" | grep -q "ELF"; then
+              patchelf --set-rpath '$ORIGIN/lib:$ORIGIN' "$bin"
+            fi
+          done
+
+          echo "::group::bundled Linux runtime libraries"
+          find "$lib_dir" -maxdepth 1 -type f -printf '%f\n' | sort || true
+          echo "::endgroup::"
+
       - name: Audit macOS runtime dependencies
         if: runner.os == 'macOS'
         run: |
