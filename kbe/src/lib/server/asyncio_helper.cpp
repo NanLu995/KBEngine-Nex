@@ -1,7 +1,7 @@
 #include "asyncio_helper.h"
-#include "script_timers.h"
 #include "serverconfig.h"
 #include "pyscript/script.h"
+#include "network/event_dispatcher.h"
 
 #include <vector>
 
@@ -20,6 +20,18 @@ std::vector<PyObject*> g_tasks;
 
 // shutdown 期间拒绝新协程，避免关闭 loop 时又塞入新的任务。
 bool g_shuttingDown = false;
+
+// 底层dispatcher timer句柄：绕开ScriptTimers，避免asyncio调度频率被game tick量化。
+TimerHandle g_timerHandle;
+
+// 每次KBEngine timer触发时，最多连续推进asyncio多少轮，避免ready队列过长时占满主循环。
+const int ASYNCIO_MAX_PUMP_ITERATIONS = 64;
+
+// 每次KBEngine timer触发时，至少推进几轮；aiohttp从accept到handler进入await通常需要多轮call_soon传递。
+const int ASYNCIO_MIN_PUMP_ITERATIONS = 8;
+
+// 每次KBEngine timer触发时，最多占用约2ms，防止HTTP/async回调过多时拖慢游戏tick。
+const uint64 ASYNCIO_MAX_PUMP_STAMPS = 2;
 
 bool ensureLoop()
 {
@@ -59,6 +71,28 @@ bool ensureLoop()
 	// loop 初始化成功后，允许正常提交任务。
 	g_shuttingDown = false;
 	return true;
+}
+
+Py_ssize_t readySize()
+{
+	// 读取asyncio内部ready队列长度，用来判断是否还有马上可执行的回调。
+	PyObject* pyReady = PyObject_GetAttrString(g_loop, "_ready");
+	if (pyReady == NULL)
+	{
+		PyErr_Clear();
+		return 0;
+	}
+
+	Py_ssize_t size = PyObject_Length(pyReady);
+	Py_DECREF(pyReady);
+
+	if (size < 0)
+	{
+		PyErr_Clear();
+		return 0;
+	}
+
+	return size;
 }
 
 void collectDoneTasks()
@@ -121,18 +155,14 @@ void collectDoneTasks()
 	}
 }
 
-void pumpLoop()
+bool pumpLoopOnce()
 {
-	// 确保主线程 event loop 已经创建。
-	if (!ensureLoop())
-		return;
-
 	// 把 loop.stop 安排到 ready 队列，保证 run_forever 本轮只跑一次就返回。
 	PyObject* stopFunc = PyObject_GetAttrString(g_loop, "stop");
 	if (stopFunc == NULL)
 	{
 		SCRIPT_ERROR_CHECK();
-		return;
+		return false;
 	}
 
 	PyObject* pyRet = PyObject_CallMethod(g_loop, const_cast<char*>("call_soon"), const_cast<char*>("O"), stopFunc);
@@ -141,7 +171,7 @@ void pumpLoop()
 	if (pyRet == NULL)
 	{
 		SCRIPT_ERROR_CHECK();
-		return;
+		return false;
 	}
 
 	// 非阻塞推进 asyncio；只处理当前 ready 的回调，不长期占住主线程。
@@ -151,20 +181,56 @@ void pumpLoop()
 	if (pyRet == NULL)
 	{
 		SCRIPT_ERROR_CHECK();
-		return;
+		return false;
 	}
 
 	Py_DECREF(pyRet);
+	return true;
+}
 
-	// 每次 pump 后回收已完成任务，并输出异常。
+void pumpLoop()
+{
+	// 确保主线程 event loop 已经创建。
+	if (!ensureLoop())
+		return;
+
+	// 把“约2ms”转换成当前平台的timestamp单位，最小为1，避免低精度平台预算为0。
+	uint64 maxPumpStamps = stampsPerSecond() * ASYNCIO_MAX_PUMP_STAMPS / 1000;
+	if (maxPumpStamps == 0)
+		maxPumpStamps = 1;
+
+	uint64 beginStamps = timestamp();
+
+	for (int i = 0; i < ASYNCIO_MAX_PUMP_ITERATIONS; ++i)
+	{
+		// 每一轮只做一次非阻塞run_forever；多轮组合用于drain aiohttp的多层ready回调。
+		if (!pumpLoopOnce())
+			return;
+
+		// 每轮后回收已完成任务，并输出异常。
+		collectDoneTasks();
+
+		// 至少跑几轮，让accept、request task创建、handler启动这些链式回调能在同一tick内推进。
+		if (i + 1 < ASYNCIO_MIN_PUMP_ITERATIONS)
+			continue;
+
+		// ready队列为空且已达到最小轮数，就把主循环时间还给KBEngine。
+		if (readySize() <= 0)
+			break;
+
+		// 如果asyncio本轮已经消耗过多时间，也停止继续drain，避免卡主线程。
+		if (timestamp() - beginStamps >= maxPumpStamps)
+			break;
+	}
+
+	// 结束前再回收一次，确保最后一轮完成的Task不滞留。
 	collectDoneTasks();
 }
 
 class AsyncioTimerHandler : public TimerHandler
 {
 public:
-	AsyncioTimerHandler(ScriptTimers* scriptTimers) :
-		scriptTimers_(scriptTimers)
+	AsyncioTimerHandler()
 	{
 	}
 
@@ -177,12 +243,10 @@ private:
 
 	virtual void onRelease(TimerHandle handle, void* /*pUser*/)
 	{
-		// timer 被取消时，同步从 ScriptTimers 的映射里释放句柄。
-		scriptTimers_->releaseTimer(handle);
+		// timer被取消时清理全局句柄，并释放handler自身。
+		g_timerHandle.clearWithoutCancel();
 		delete this;
 	}
-
-	ScriptTimers* scriptTimers_;
 };
 }
 	
@@ -222,23 +286,27 @@ private:
 		return NULL;
 	}
 
-	bool AsyncioHelper::installTimer(ScriptTimers* scriptTimers)
+	bool AsyncioHelper::installTimer(Network::EventDispatcher& dispatcher)
 	{
 		// 配置小于等于 0 表示关闭 asyncio timer。
 		if (g_kbeSrvConfig.asyncioRepeatOffset() <= 0.f)
+			return true;
+
+		// 如果已经安装过底层timer，直接复用，避免重复pump同一个loop。
+		if (g_timerHandle.isSet())
 			return true;
 
 		// 安装 timer 前先初始化 loop，初始化失败则阻止 app 继续启动。
 		if (!ensureLoop())
 			return false;
 
-		// 创建 KBEngine timer handler，用主线程周期性 pump asyncio。
-		ScriptTimers* pTimers = scriptTimers;
-		AsyncioTimerHandler* handler = new AsyncioTimerHandler(pTimers);
+		// 创建底层EventDispatcher timer handler，用主线程周期性pump asyncio。
+		AsyncioTimerHandler* handler = new AsyncioTimerHandler();
 
-		// 按配置频率触发；每次触发只执行一次非阻塞 pump。
-		ScriptID timerID = ScriptTimersUtil::addTimer(&pTimers, 0.1f, g_kbeSrvConfig.asyncioRepeatOffset(), 0, handler);
-		if (timerID == 0)
+		// 按秒配置转成微秒级dispatcher timer，不再受gameUpdateHertz的tick粒度限制。
+		int64 intervalUS = KBE_MAX(int64(1000), int64(g_kbeSrvConfig.asyncioRepeatOffset() * 1000000.f));
+		g_timerHandle = dispatcher.addTimer(intervalUS, handler);
+		if (!g_timerHandle.isSet())
 		{
 			delete handler;
 			ERROR_MSG("AsyncioHelper::installTimer: unable to add asyncio timer.\n");
@@ -256,6 +324,10 @@ private:
 
 		// 进入关闭状态，后续 submitCoroutine 会拒绝新任务。
 		g_shuttingDown = true;
+
+		// 先取消底层dispatcher timer，避免关闭过程中继续pump loop。
+		if (g_timerHandle.isSet())
+			g_timerHandle.cancel();
 
 		// 取消所有未完成 Task，让协程有机会处理取消。
 		for (std::vector<PyObject*>::iterator iter = g_tasks.begin(); iter != g_tasks.end(); ++iter)

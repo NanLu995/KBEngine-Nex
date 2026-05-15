@@ -85,6 +85,12 @@ PyObject* PyUrl::__py_urlopen(PyObject* self, PyObject* args)
 	{
 		PyObject* pyobj = NULL;
 		ret = PyArg_ParseTuple(args, "s|O|O", &surl, &pyCallback, &pyobj);
+		if (!ret)
+		{
+			PyErr_Format(PyExc_AssertionError, "KBEngine::urlopen: args error!");
+			PyErr_PrintEx(0);
+			return NULL;
+		}
 
 		// 检查是headers还是post data
 		if (PyDict_Check(pyobj))
@@ -124,6 +130,12 @@ PyObject* PyUrl::__py_urlopen(PyObject* self, PyObject* args)
 		PyObject* pypost = NULL;
 		PyObject* pyheaders = NULL;
 		ret = PyArg_ParseTuple(args, "s|O|O|O", &surl, &pyCallback, &pypost, &pyheaders);
+		if (!ret)
+		{
+			PyErr_Format(PyExc_AssertionError, "KBEngine::urlopen: args error!");
+			PyErr_PrintEx(0);
+			return NULL;
+		}
 
 		// 检查是headers还是post data
 		if (PyDict_Check(pyheaders))

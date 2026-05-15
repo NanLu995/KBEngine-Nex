@@ -1528,6 +1528,7 @@ bool Components::process()
 
 			// 向局域网内广播UDP包，提交自己的身份
 			Network::BundleBroadcast bhandler(*pNetworkInterface(), nport);
+			bhandler.itry(0);
 
 			if (!bhandler.good())
 			{
@@ -1561,7 +1562,7 @@ bool Components::process()
 
 			// 等待返回信息，如果存在返回说明身份已经被使用，该进程不合法，程序接下来会退出
 			// 如果没有返回说明没有machine对此进程有意见，可以成功启动
-			int32 timeout = 500000;
+			int32 timeout = 100000;
 			MachineInterface::onBroadcastInterfaceArgs25 args;
 
 			if(bhandler.receive(&args, 0, timeout, false))
@@ -1609,7 +1610,8 @@ bool Components::process()
 
 		state_ = 1;
 
-		return true;
+		if(!findComponents())
+			return true;
 	}
 	else
 	{
