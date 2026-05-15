@@ -75,7 +75,12 @@ if(NOT WIN32)
 				continue()
 			elseif(MYSQL_LIB MATCHES "^-l(.+)")
 				set(_lib_name "${CMAKE_MATCH_1}")
-				if(_lib_name MATCHES "^(mysqlclient|mariadb|zstd|ssl|crypto)$")
+				if(_lib_name MATCHES "^(ssl|crypto)$")
+					# OpenSSL is already provided by KBEOpenSSL::SSL. Linking the
+					# system static OpenSSL from mysql_config in addition to vcpkg
+					# OpenSSL causes duplicate symbols on Linux.
+					continue()
+				elseif(_lib_name MATCHES "^(mysqlclient|mariadb|zstd)$")
 					kbe_find_static_library(_static_lib "${_lib_name}" ${MYSQL_LIBRARY_DIRS})
 					if(_static_lib)
 						list(APPEND MYSQL_LINK_LIBS "${_static_lib}")
