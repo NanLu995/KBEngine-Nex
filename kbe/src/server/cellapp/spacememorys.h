@@ -35,9 +35,19 @@ public:
 		寻找一个指定space 
 	*/
 	static SpaceMemory* findSpace(SPACE_ID spaceID);
-	
-	/** 
-		更新所有的space 
+
+	/**
+		返回当前cellapp下所有space的脚本对象
+	*/
+	static PyObject* __py_Spaces(PyObject* self, PyObject* args);
+
+	/**
+		返回指定space下所有实体
+	*/
+	static PyObject* __py_EntitiesForSpace(PyObject* self, PyObject* args);
+
+	/**
+		更新所有的space
 	*/
 	static void update();
 

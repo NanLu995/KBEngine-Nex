@@ -157,7 +157,6 @@ include_directories(
     ${KBE_ROOT}/kbe/src/lib
     ${KBE_ROOT}/kbe/src/server
     ${KBE_ROOT}/kbe/src/lib/dependencies
-    ${KBE_ROOT}/kbe/src/lib/dependencies/mysql
     ${KBE_ROOT}/kbe/src/lib/dependencies/g3dlite
     ${KBE_ROOT}/kbe/src/lib/dependencies/fmt/include
     ${KBE_ROOT}/kbe/src/lib/dependencies/curl/include
@@ -198,6 +197,7 @@ endif()
 
 
 find_package(fmt CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 find_package(CURL REQUIRED)
 find_package(EXPAT  REQUIRED COMPONENTS core)
 
@@ -205,6 +205,7 @@ find_package(log4cxx CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(hiredis CONFIG REQUIRED)
 find_package(mongoc CONFIG REQUIRED)
+find_package(PostgreSQL REQUIRED)
 find_package(recastnavigation CONFIG REQUIRED)
 
 
@@ -249,18 +250,19 @@ add_subdirectory(lib/python)
 add_subdirectory(lib/helper)
 add_subdirectory(lib/client_lib)
 add_subdirectory(lib/common)
-add_subdirectory(lib/db_interface)
 add_subdirectory(lib/db_mysql)
 add_subdirectory(lib/db_mongodb)
+add_subdirectory(lib/db_postgresql)
+add_subdirectory(lib/db_interface)
+add_subdirectory(lib/xml)
+add_subdirectory(lib/resmgr)
 add_subdirectory(lib/entitydef)
 add_subdirectory(lib/math)
 add_subdirectory(lib/navigation)
 add_subdirectory(lib/network)
 add_subdirectory(lib/pyscript)
-add_subdirectory(lib/resmgr)
 add_subdirectory(lib/server)
 add_subdirectory(lib/thread)
-add_subdirectory(lib/xml)
 
 
 add_subdirectory(server/baseapp)

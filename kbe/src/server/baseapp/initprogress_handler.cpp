@@ -194,6 +194,8 @@ bool InitProgressHandler::process()
 		else
 			SCRIPT_ERROR_CHECK();
 
+		Baseapp::getSingleton().dispatchPluginEvent("onComponentReady", (g_componentGroupOrder == 1));
+
 		return true;
 	}
 

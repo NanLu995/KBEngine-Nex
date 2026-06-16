@@ -5,7 +5,7 @@
 #define KBE_ENTITY_MACRO_H
 
 #include "common/common.h"
-#include "server/callbackmgr.h"		
+#include "server/callbackmgr.h"
 
 namespace KBEngine{
 
@@ -23,7 +23,7 @@ namespace KBEngine{
 	SCRIPT_METHOD_DECLARE("fireEvent",						pyFireEvent,						METH_VARARGS | METH_KEYWORDS,	0)	\
 	SCRIPT_METHOD_DECLARE("getComponent",					pyGetComponent,						METH_VARARGS | METH_KEYWORDS,	0)	\
 
-	
+
 #define ENTITY_METHOD_DECLARE_END()																									\
 	SCRIPT_METHOD_DECLARE_END()																										\
 
@@ -48,7 +48,7 @@ namespace KBEngine{
 	SCRIPT_METHOD_DECLARE("deregisterEvent",				pyDeregisterEvent,					METH_VARARGS | METH_KEYWORDS,	0)	\
 	SCRIPT_METHOD_DECLARE("fireEvent",						pyFireEvent,						METH_VARARGS | METH_KEYWORDS,	0)	\
 
-	
+
 #define CLIENT_ENTITY_METHOD_DECLARE_END()																							\
 	SCRIPT_METHOD_DECLARE_END()																										\
 
@@ -65,7 +65,7 @@ namespace KBEngine{
 	SCRIPT_GETSET_DECLARE_END()																				\
 
 
-#ifdef CLIENT_NO_FLOAT																					
+#ifdef CLIENT_NO_FLOAT
 	#define ADD_POS_DIR_TO_STREAM(s, pos, dir)																\
 		int32 x = (int32)pos.x;																				\
 		int32 y = (int32)pos.y;																				\
@@ -116,7 +116,7 @@ namespace KBEngine{
 	}																										\
 
 
-#else																									
+#else
 	#define ADD_POS_DIR_TO_STREAM(s, pos, dir)																\
 		s << (ENTITY_PROPERTY_UID)0 << posuid << pos.x << pos.y << pos.z;									\
 		s << (ENTITY_PROPERTY_UID)0 << diruid << dir.x << dir.y << dir.z;									\
@@ -127,7 +127,7 @@ namespace KBEngine{
 		s << (uint8)0 << aliasID << pos.x << pos.y << pos.z;												\
 		aliasID = ENTITY_BASE_PROPERTY_ALIASID_DIRECTION_ROLL_PITCH_YAW;									\
 		s << (uint8)0 << aliasID << dir.x << dir.y << dir.z;												\
-	
+
 
 	#define STREAM_TO_POS_DIR(s, pos, dir)																	\
 	{																										\
@@ -137,7 +137,7 @@ namespace KBEngine{
 	}																										\
 
 
-#endif	
+#endif
 
 
 #define ADD_POSDIR_TO_STREAM(s, pos, dir)																	\
@@ -240,7 +240,7 @@ namespace KBEngine{
 
 
 #else
-	#define DEBUG_CREATE_ENTITY_NAMESPACE			
+	#define DEBUG_CREATE_ENTITY_NAMESPACE
 	#define DEBUG_OP_ATTRIBUTE(op, ccattr)
 	#define DEBUG_PERSISTENT_PROPERTY(op, ccattr)
 	#define DEBUG_REDUCE_EX(tentity)
@@ -278,11 +278,14 @@ protected:																									\
 	ScriptTimers												scriptTimers_;								\
 	PY_CALLBACKMGR												pyCallbackMgr_;								\
 	bool														isDestroyed_;								\
+	bool														isSpace_;									\
 	uint32														flags_;										\
 	ENTITY_EVENTS												events_;									\
 public:																										\
-																											\
+\
 	bool initing() const{ return hasFlags(ENTITY_FLAGS_INITING); }											\
+	bool isSpace() const{ return isSpace_; }																\
+	void isSpace(bool v){ isSpace_ = v; }																	\
 																											\
 	void onInitializeScript();																				\
 	void initializeScript()																					\
@@ -386,7 +389,10 @@ public:																										\
 			return false;																					\
 		}																									\
 																											\
-		initProperty(true);																					\
+		/* 普通 reloadScript(False) 只更新脚本行为层，不能重新初始化属性，						\
+		   否则在线实体数据会被默认值覆盖；只有 fullReload 才做属性差异补齐。 */					\
+		if(fullReload)																						\
+			initProperty(true);																				\
 		return _reload(fullReload);																			\
 	}																										\
 																											\
@@ -639,15 +645,15 @@ public:																										\
 				if(pScriptModule()->usePropertyDescrAlias())												\
 				{																							\
 					(*s) << (uint8)0;																		\
-	    			(*s) << propertyDescription->aliasIDAsUint8();											\
+					(*s) << propertyDescription->aliasIDAsUint8();											\
 				}																							\
 				else																						\
 				{																							\
 					(*s) << (ENTITY_PROPERTY_UID)0;															\
-	    			(*s) << propertyDescription->getUType();												\
+					(*s) << propertyDescription->getUType();												\
 				}																							\
 																											\
-	    		propertyDescription->getDataType()->addToStream(s, PyDict_GetItem(pydict, key));			\
+				propertyDescription->getDataType()->addToStream(s, PyDict_GetItem(pydict, key));			\
 			}																								\
 																											\
 			Py_DECREF(key);																					\
@@ -1044,8 +1050,8 @@ public:																										\
 	{																										\
 		CLASS* pobj = static_cast<CLASS*>(self);															\
 		static EntityComponent::OnDataChangedEvent dataChangedEvent;										\
-			dataChangedEvent = std::tr1::bind(&CLASS::onDefDataChanged, pobj,								\
-			std::tr1::placeholders::_1, std::tr1::placeholders::_2, std::tr1::placeholders::_3);			\
+			dataChangedEvent = std::bind(&CLASS::onDefDataChanged, pobj,								\
+			std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);			\
 		return PyLong_FromVoidPtr((void*)&dataChangedEvent);												\
 	}																										\
 																											\
@@ -1585,9 +1591,11 @@ public:																										\
 										EntityDef::findOldScriptModule(pScriptModule_->getName());			\
 			if(!pOldScriptDefModule)																		\
 			{																								\
-				ERROR_MSG(fmt::format("{}::initProperty: not found old_module!\n",							\
+				/* fullReload 需要旧模块描述用于属性差异比对；如果旧描述缺失，							\
+				   为了保留在线数据，跳过本次属性 reload，不再 assert 终止进程。 */						\
+				WARNING_MSG(fmt::format("{}::initProperty: not found old_module, skip property reload.\n",	\
 					pScriptModule_->getName()));															\
-				KBE_ASSERT(false && "Entity::initProperty: not found old_module");							\
+				return;																						\
 			}																								\
 																											\
 			oldpropers =																					\
@@ -1679,6 +1687,7 @@ public:																										\
 	scriptTimers_(),																						\
 	pyCallbackMgr_(),																						\
 	isDestroyed_(false),																					\
+	isSpace_(false),																						\
 	flags_(ENTITY_FLAGS_INITING)																			\
 
 

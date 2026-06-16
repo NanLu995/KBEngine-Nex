@@ -1,5 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
-
+﻿
 #include "KBEMain.h"
 #include "KBEngine.h"
 #include "KBEngineArgs.h"

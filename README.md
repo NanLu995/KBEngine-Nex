@@ -12,13 +12,13 @@
 
 [![][qq1-shield]][qq1-link]
 
-[![][build-status-shield]][build-status-link] [![][release-shield]][release-link] [![][last-commit-shield]][last-commit-shield-link] [![][github-issues-shield]][github-issues-shield-link] [![][github-stars-shield]][github-stars-link] [![JetBrains Plugins](https://img.shields.io/jetbrains/plugin/v/27963-kbenginex.svg)](https://plugins.jetbrains.com/plugin/27963-kbenginex)
+[![][release-shield]][release-link] [![][last-commit-shield]][last-commit-shield-link] [![][github-issues-shield]][github-issues-shield-link] [![][github-stars-shield]][github-stars-link] [![JetBrains Plugins](https://img.shields.io/jetbrains/plugin/v/27963-kbenginex.svg)](https://plugins.jetbrains.com/plugin/27963-kbenginex)
 
 </div>
 
 ## Pycharm 插件
 
-**Pycharm插件已发布，支持 2024.2 - 2025.\***
+**Pycharm插件已发布.\***
 
 [![JetBrains Plugins](https://img.shields.io/jetbrains/plugin/v/27963-kbenginex.svg)](https://plugins.jetbrains.com/plugin/27963-kbenginex)
 
@@ -118,7 +118,7 @@ KBEngine Nex 是在KBEngine 2.5.12 的基础上社区继续维护的版本
 
 **注意：VCPKG强依赖于Github，需要网络支持，请自行解决网络问题！**
 
-**Gitee目录提供了国内镜像安装脚本**
+**install/proxy/ 目录提供了国内镜像安装脚本**
 
 ### 执行编译脚本 `install_*.bat/sh`
 
@@ -127,11 +127,11 @@ KBEngine Nex 是在KBEngine 2.5.12 的基础上社区继续维护的版本
 **使用方法**：
 
 ``` CMD
-install_windows.bat [CONFIG] [VCPKGPATH]
+install/install_windows.bat [CONFIG] [VCPKGPATH]
 ```
 
 ``` sh
-install_linux.sh [CONFIG]
+install/install_linux.sh [CONFIG]
 ```
 
 **参数说明**：
@@ -148,39 +148,39 @@ install_linux.sh [CONFIG]
 
 ```CMD
 # 使用默认 Debug 配置
-install_windows.bat
+install/install_windows.bat
 
 # 指定 Release 配置并指定 vcpkg 路径
-install_windows.bat Release D:\Tools\vcpkg
+install/install_windows.bat Release D:\Tools\vcpkg
 
 # 编译并安装 GUICONSOLE
-install_windows.bat Debug D:\Tools\vcpkg GUICONSOLE
+install/install_windows.bat Debug D:\Tools\vcpkg GUICONSOLE
 
 # 所有示例
-install_windows.bat Debug
-install_windows.bat Debug "VCPKGPATH"
-install_windows.bat Debug "" GUICONSOLE
-install_windows.bat Release
-install_windows.bat Release "VCPKGPATH"
-install_windows.bat Release  "" GUICONSOLE
+install/install_windows.bat Debug
+install/install_windows.bat Debug "VCPKGPATH"
+install/install_windows.bat Debug "" GUICONSOLE
+install/install_windows.bat Release
+install/install_windows.bat Release "VCPKGPATH"
+install/install_windows.bat Release  "" GUICONSOLE
 ```
 
 ##### Linux：
 
 ```sh
 # 使用默认 Release 配置
-install_linux.sh
+install/install_linux.sh
 
 # 指定Debug
 # Linux下支持 Release、Debug、Hybrid、Evaluation
-install_linux.sh Debug
+install/install_linux.sh Debug
 
 
 # 所有示例
-install_linux.sh Debug
-install_linux.sh Release
-install_linux.sh Hybrid
-install_linux.sh Evaluation
+install/install_linux.sh Debug
+install/install_linux.sh Release
+install/install_linux.sh Hybrid
+install/install_linux.sh Evaluation
 ```
 
 

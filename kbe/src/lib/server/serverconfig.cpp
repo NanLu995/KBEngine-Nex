@@ -17,6 +17,31 @@ KBE_SINGLETON_INIT(ServerConfig);
 
 static bool g_dbmgr_addDefaultAddress = true;
 
+static void loadRawDatabaseCommandBlacklist(XML* xml, TiXmlNode* rootNode, const char* dbType,
+	std::map<std::string, std::vector<std::string> >& blacklist)
+{
+	TiXmlNode* node = xml->enterNode(rootNode, dbType);
+	if (node == NULL)
+		return;
+
+	std::string dbTypeName = strutil::toLower(dbType);
+	std::vector<std::string>& words = blacklist[dbTypeName];
+	words.clear();
+
+	std::vector<std::string> values;
+	strutil::kbe_splits(xml->getValStr(node), ",", values, false);
+
+	for (std::vector<std::string>::iterator iter = values.begin(); iter != values.end(); ++iter)
+	{
+		std::string word = strutil::toLower(strutil::kbe_trim(*iter));
+		if (!word.empty())
+			words.push_back(word);
+	}
+
+	// INFO_MSG(fmt::format("ServerConfig::loadConfig: loaded executeRawDatabaseCommand blacklist, dbType={}, count={}.\n",
+	// 	dbTypeName, words.size()));
+}
+
 //-------------------------------------------------------------------------------------
 ServerConfig::ServerConfig():
 	gameUpdateHertz_(10),
@@ -985,7 +1010,29 @@ bool ServerConfig::loadConfig(std::string fileName)
 			}
 		}
 
-		node = xml->enterNode(rootNode, "internalInterface");	
+		node = xml->enterNode(rootNode, "rawDatabaseCommandBlacklist");
+		if (node != NULL)
+		{
+			TiXmlNode* childnode = xml->enterNode(node, "enable");
+			_dbmgrInfo.enableRawDatabaseCommandBlacklist = childnode != NULL && xml->getValStr(childnode) == "true";
+
+			// INFO_MSG(fmt::format("ServerConfig::loadConfig: executeRawDatabaseCommand blacklist enabled={}.\n",
+			// 	_dbmgrInfo.enableRawDatabaseCommandBlacklist ? "true" : "false"));
+
+			if (_dbmgrInfo.enableRawDatabaseCommandBlacklist)
+			{
+				// INFO_MSG("ServerConfig::loadConfig: loading executeRawDatabaseCommand blacklist config.\n");
+				loadRawDatabaseCommandBlacklist(xml.get(), node, "mysql", _dbmgrInfo.rawDatabaseCommandBlacklist);
+				loadRawDatabaseCommandBlacklist(xml.get(), node, "mongodb", _dbmgrInfo.rawDatabaseCommandBlacklist);
+				loadRawDatabaseCommandBlacklist(xml.get(), node, "postgresql", _dbmgrInfo.rawDatabaseCommandBlacklist);
+			}
+			else
+			{
+				_dbmgrInfo.rawDatabaseCommandBlacklist.clear();
+			}
+		}
+
+		node = xml->enterNode(rootNode, "internalInterface");
 		if(node != NULL)
 			strncpy((char*)&_dbmgrInfo.internalInterface, xml->getValStr(node).c_str(), MAX_NAME - 1);
 
@@ -1733,6 +1780,64 @@ bool ServerConfig::loadConfig(std::string fileName)
 		}
 	}
 
+
+	// 自定义配置参数。
+	// 约定XML结构为：
+	// <customCfg>
+	//     <param name="battle.maxPlayers" type="int" desc="max players per battle">100</param>
+	// </customCfg>
+	//
+	// name: Python脚本查询时使用的key，允许使用battle.maxPlayers这类更适合配置分组的名字。
+	// type: 控制KBEngine.getCustomCfg返回的Python对象类型，目前支持bool、int、float、string、dict、list。
+	// desc: 只用于人工阅读和工具展示，运行时不读取到内存，避免保存脚本访问不到的无用元数据。
+	// value: 节点文本内容，先按字符串保存，真正的类型转换在Python导出接口中按需执行。
+	rootNode = xml->getRootNode("customCfg");
+	if(rootNode != NULL)
+	{
+		TiXmlNode* childnode = rootNode;
+		while(childnode)
+		{
+			if(childnode->Type() == TiXmlNode::TINYXML_ELEMENT)
+			{
+				TiXmlElement* element = childnode->ToElement();
+				if(element == NULL)
+				{
+					childnode = childnode->NextSibling();
+					continue;
+				}
+
+				// customCfg只识别统一的param节点，避免把XML标签名本身当作配置key后受到标签命名规则限制。
+				if(std::string(element->Value()) != "param")
+				{
+					WARNING_MSG(fmt::format("ServerConfig::loadConfig: customCfg only supports <param>, ignore <{}>.\n", element->Value()));
+					childnode = childnode->NextSibling();
+					continue;
+				}
+
+				const char* name = element->Attribute("name");
+				if(name == NULL || strlen(name) == 0)
+				{
+					WARNING_MSG("ServerConfig::loadConfig: customCfg param missing name, ignored.\n");
+					childnode = childnode->NextSibling();
+					continue;
+				}
+
+				ServerConfig::CustomCfgItem item;
+				item.name = name;
+
+				// type缺省时按string处理，便于只想传简单文本配置的场景，也保持较温和的兼容性。
+				const char* type = element->Attribute("type");
+				item.type = (type != NULL && strlen(type) > 0) ? type : "string";
+
+				TiXmlNode* textNode = childnode->FirstChild();
+				item.value = textNode != NULL ? xml->getValStr(textNode) : "";
+
+				// 多个配置文件会按加载顺序覆盖同名配置，保留KBEngine默认配置被业务配置覆盖的既有习惯。
+				customCfg_[item.name] = item;
+			}
+			childnode = childnode->NextSibling();
+		}
+	}
 	return true;
 }
 
@@ -2029,5 +2134,30 @@ void ServerConfig::updateInfos(bool isPrint, COMPONENT_TYPE componentType, COMPO
 #endif
 }
 
-//-------------------------------------------------------------------------------------		
+bool ServerConfig::enableRawDatabaseCommandBlacklist() const
+{
+	return _dbmgrInfo.enableRawDatabaseCommandBlacklist;
+}
+
+const std::vector<std::string>& ServerConfig::rawDatabaseCommandBlacklist(const std::string& dbType) const
+{
+	static const std::vector<std::string> emptyList;
+
+	if (!_dbmgrInfo.enableRawDatabaseCommandBlacklist)
+		return emptyList;
+
+	std::string dbTypeName = strutil::toLower(strutil::kbe_trim(dbType));
+	if (dbTypeName == "pgsql")
+		dbTypeName = "postgresql";
+
+	std::map<std::string, std::vector<std::string> >::const_iterator iter =
+		_dbmgrInfo.rawDatabaseCommandBlacklist.find(dbTypeName);
+
+	if (iter == _dbmgrInfo.rawDatabaseCommandBlacklist.end())
+		return emptyList;
+
+	return iter->second;
+}
+
+//-------------------------------------------------------------------------------------
 }

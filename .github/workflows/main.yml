@@ -31,7 +31,7 @@ jobs:
       matrix:
         include:
           - platform: windows-x64
-            os: windows-latest
+            os: windows-2022
             archive_ext: zip
           - platform: macos
             os: macos-latest
@@ -52,28 +52,32 @@ jobs:
           else
             VERSION="${GITHUB_REF_NAME}"
           fi
-
           if [ -z "$VERSION" ]; then
             VERSION="dev-${GITHUB_SHA::7}"
           fi
-
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build on Linux
         if: runner.os == 'Linux'
         run: |
-          bash ./install_linux.sh "$BUILD_CONFIG"
+          bash ./install/install_linux.sh "$BUILD_CONFIG"
 
       - name: Build on macOS
         if: runner.os == 'macOS'
         run: |
-          bash ./install_macos.sh "$BUILD_CONFIG"
+          bash ./install/install_macos.sh "$BUILD_CONFIG"
 
       - name: Build on Windows
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          call install_windows.bat %BUILD_CONFIG%
+          call install\install_windows.bat %BUILD_CONFIG%
+
+      - name: Build GUICONSOLE on Windows
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          call install\install_windows.bat %BUILD_CONFIG% "" GUICONSOLE
 
       - name: Verify server binaries
         run: |
@@ -98,11 +102,9 @@ jobs:
           set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y patchelf
-
           lib_dir="kbe/bin/server/lib"
           mkdir -p "$lib_dir"
           : > /tmp/kbe-runtime-libs.txt
-
           for bin in kbe/bin/server/*; do
             if [ -f "$bin" ] && file "$bin" | grep -q "ELF"; then
               ldd "$bin" | awk '
@@ -111,25 +113,21 @@ jobs:
               ' >> /tmp/kbe-runtime-libs.txt
             fi
           done
-
           sort -u /tmp/kbe-runtime-libs.txt | while read -r lib; do
             [ -n "$lib" ] || continue
             [ -f "$lib" ] || continue
             base="$(basename "$lib")"
             case "$base" in
               ld-linux*.so.*|libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|librt.so.*|libresolv.so.*|linux-vdso*.so.*)
-                continue
-                ;;
+                continue ;;
             esac
             cp -L "$lib" "$lib_dir/"
           done
-
           for bin in kbe/bin/server/*; do
             if [ -f "$bin" ] && file "$bin" | grep -q "ELF"; then
               patchelf --set-rpath '$ORIGIN/lib:$ORIGIN' "$bin"
             fi
           done
-
           echo "::group::bundled Linux runtime libraries"
           find "$lib_dir" -maxdepth 1 -type f -printf '%f\n' | sort || true
           echo "::endgroup::"
@@ -160,35 +158,23 @@ jobs:
           $stageRoot = Join-Path $PWD "dist"
           $stageDir = Join-Path $stageRoot $packageName
           $kbeDir = Join-Path $stageDir "kbe"
-
           New-Item -ItemType Directory -Force -Path $kbeDir | Out-Null
-
           foreach ($dir in @("docs")) {
-            if (Test-Path $dir) {
-              Copy-Item -Path $dir -Destination $stageDir -Recurse -Force
-            }
+            if (Test-Path $dir) { Copy-Item -Path $dir -Destination $stageDir -Recurse -Force }
           }
-
           foreach ($dir in @("bin", "res", "tools")) {
             $source = Join-Path "kbe" $dir
-            if (Test-Path $source) {
-              Copy-Item -Path $source -Destination $kbeDir -Recurse -Force
-            }
+            if (Test-Path $source) { Copy-Item -Path $source -Destination $kbeDir -Recurse -Force }
           }
-
           foreach ($file in @("new_assets.bat", "new_assets.sh", "UPDATE.md", "README.md")) {
-            if (Test-Path $file) {
-              Copy-Item -Path $file -Destination $stageDir -Force
-            }
+            if (Test-Path $file) { Copy-Item -Path $file -Destination $stageDir -Force }
           }
-
           $archivePath = Join-Path $stageRoot "$packageName.${{ matrix.archive_ext }}"
           if ("${{ matrix.archive_ext }}" -eq "zip") {
             Compress-Archive -Path $stageDir -DestinationPath $archivePath -Force
           } else {
             tar -czf $archivePath -C $stageRoot $packageName
           }
-
           "archive=$archivePath" >> $env:GITHUB_OUTPUT
           "archive_name=$(Split-Path $archivePath -Leaf)" >> $env:GITHUB_OUTPUT
 
@@ -242,3 +228,79 @@ jobs:
               --title "KBEngine-Nex $VERSION" \
               --notes "Release binaries for Windows, macOS, and Linux."
           fi
+
+  publish-gitcode:
+    name: Publish GitCode Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    env:
+      GITCODE_OWNER: KBEngineLab
+      GITCODE_REPO: KBEngine-Nex
+      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+
+    steps:
+      - name: Check GitCode token
+        run: |
+          if [ -z "${GITCODE_TOKEN}" ]; then
+            echo "GITCODE_TOKEN not configured, skipping GitCode publish"
+            exit 0
+          fi
+
+      - name: Resolve release version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            VERSION="${{ github.event.inputs.tag_name }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push tag to GitCode
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -e
+          git remote add gitcode "https://oauth2:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
+          git config user.name  "GitHub Actions"
+          git config user.email "actions@github.com"
+
+          # Create tag locally if needed (workflow_dispatch doesn't have it yet)
+          if ! git rev-parse "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            git tag "${VERSION}" -m "Release ${VERSION}"
+          fi
+
+          # Mirror all refs to gitcode
+          git push gitcode --all --force
+          git push gitcode --tags --force
+
+      - name: Create release on GitCode
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -e
+          RESP=$(curl -sS -w "\n%{http_code}" -X POST \
+            "https://api.gitcode.com/api/v5/repos/${GITCODE_OWNER}/${GITCODE_REPO}/releases?access_token=${GITCODE_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\":\"${VERSION}\",\"name\":\"KBEngine-Nex ${VERSION}\",\"body\":\"Release binaries for Windows, macOS, and Linux.\",\"release_status\":\"latest\"}")
+
+          HTTP_CODE=$(echo "$RESP" | tail -1)
+          BODY=$(echo "$RESP" | sed '$d')
+
+          echo "Create release: HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "Release created"
+          elif [ "$HTTP_CODE" = "409" ]; then
+            echo "Release already exists, continuing"
+          else
+            echo "Failed: $BODY"
+            exit 1
+          fi
+
+

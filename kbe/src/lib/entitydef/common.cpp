@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "resmgr/resmgr.h"
+#include "resmgr/plugins/plugin_manager.h"
 
 namespace KBEngine{
 
@@ -114,6 +115,22 @@ std::pair<std::wstring, std::wstring> getComponentPythonPaths(COMPONENT_TYPE com
 		pyPaths += user_scripts_path + L"client/components;";
 		break;
 	};
+
+	if (!PluginManager::instance().initialize())
+		return pathPair;
+
+	// 插件路径只由 resmgr/plugins 计算，当前函数仍按 KBE 原流程负责安装 Python path。
+	std::vector<std::string> pluginPaths = PluginManager::instance().getComponentPythonPaths(componentType);
+	for (std::vector<std::string>::iterator iter = pluginPaths.begin(); iter != pluginPaths.end(); ++iter)
+	{
+		wchar_t* wpluginPath = KBEngine::strutil::char2wchar(const_cast<char*>(iter->c_str()));
+		if (wpluginPath)
+		{
+			pyPaths += wpluginPath;
+			pyPaths += L";";
+			free(wpluginPath);
+		}
+	}
 
 	std::string kbe_res_path = Resmgr::getSingleton().getPySysResPath();
 	kbe_res_path += "scripts/common";

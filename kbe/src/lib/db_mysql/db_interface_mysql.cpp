@@ -202,16 +202,17 @@ bool DBInterfaceMysql::attach(const char* databaseName)
 		SSL_MODE_VERIFY_IDENTITY	同上，额外验证服务器主机名匹配证书*/
 		
 
+		// MariaDB Connector/C 自动处理认证流程，无需显式设置 RSA 公钥
 		// 启用“允许向服务器请求 RSA 公钥”
-		const bool get_pubkey = 1;
-		mysql_options(mysql(), MYSQL_OPT_GET_SERVER_PUBLIC_KEY, &get_pubkey);
+		// const bool get_pubkey = 1;
+		// mysql_options(mysql(), MYSQL_SERVER_PUBLIC_KEY, &get_pubkey);
 
 
 		unsigned long clientflag = 0;
 
 		if (db_mysql_ssl_) {
-			const enum mysql_ssl_mode opt_use_ssl = SSL_MODE_REQUIRED;
-			mysql_options(mysql(), MYSQL_OPT_SSL_MODE, &opt_use_ssl);
+			const bool opt_use_ssl = 1;
+			mysql_options(mysql(), MYSQL_OPT_SSL_ENFORCE, &opt_use_ssl);
 			mysql_ssl_set(mysql(),
 				db_mysql_clientKeyPath_.c_str(),
 				db_mysql_clientCertPath_.c_str(),
@@ -222,12 +223,14 @@ bool DBInterfaceMysql::attach(const char* databaseName)
 			clientflag = CLIENT_SSL ;
 
 
-			DEBUG_MSG(fmt::format("DBInterfaceMysql::Enable SSL: sslCert: {}; sslKey:{}; sslCa:{} ...\n", db_mysql_clientKeyPath_, db_mysql_clientCertPath_, db_mysql_caPath_));
+			DEBUG_MSG(fmt::format("DBInterfaceMysql::Enable SSL: sslCert: {}; sslKey:{}; sslCa:{} ...\n", db_mysql_clientCertPath_, db_mysql_clientKeyPath_, db_mysql_caPath_));
+			
 		}
 		else {
-			// 禁用 SSL
-			const enum mysql_ssl_mode opt_use_ssl = SSL_MODE_DISABLED;
-			mysql_options(mysql(), MYSQL_OPT_SSL_MODE, &opt_use_ssl);
+			// 不强制 SSL，且跳过证书验证，避免自签名证书导致 mysql_errno=2026
+			unsigned int opt = 0;
+			mysql_options(mysql(), MYSQL_OPT_SSL_ENFORCE, &opt);
+			mysql_options(mysql(), MYSQL_OPT_SSL_VERIFY_SERVER_CERT, &opt);
 		}
 
 		
@@ -240,6 +243,15 @@ __RECONNECT:
 		if(mysql_real_connect(mysql(), db_ip_, db_username_, 
     		db_password_, db_name_, db_port_, NULL, clientflag)) // CLIENT_MULTI_STATEMENTS  
 		{
+			if (db_mysql_ssl_)
+			{
+				const char* cipher = mysql_get_ssl_cipher(mysql());
+
+				DEBUG_MSG(fmt::format(
+					"DBInterfaceMysql::SSL Cipher={}\n",
+					cipher ? cipher : "NULL"));
+			}
+			
 			if(mysql_select_db(mysql(), db_name_) != 0)
 			{
 				ERROR_MSG(fmt::format("DBInterfaceMysql::attach: Could not set active db[{}]\n",

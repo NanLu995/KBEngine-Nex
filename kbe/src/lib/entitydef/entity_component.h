@@ -3,7 +3,7 @@
 
 #ifndef KBE_ENTITY_COMPONENT_H
 #define KBE_ENTITY_COMPONENT_H
-	
+
 #include "common/common.h"
 #include "common/timer.h"
 #include "pyscript/scriptobject.h"
@@ -84,8 +84,8 @@ public:
 	EntityComponent(ENTITY_ID ownerID, ScriptDefModule* pComponentDescrs, COMPONENT_TYPE assignmentToComponentType/*属性所属实体的哪一部分，cell或者base?*/);
 	~EntityComponent();
 
-	/** 
-		获取entityID 
+	/**
+		获取entityID
 	*/
 	ENTITY_ID ownerID() const;
 
@@ -111,8 +111,8 @@ public:
 	DECLARE_PY_MOTHOD_ARG3(pyAddTimer, float, float, int32);
 	DECLARE_PY_MOTHOD_ARG1(pyDelTimer, PyObject_ptr);
 
-	/** 
-		获得描述 
+	/**
+		获得描述
 	*/
 	INLINE ScriptDefModule* pComponentDescrs(void) const;
 
@@ -121,11 +121,11 @@ public:
 	*/
 	static void onInstallScript(PyObject* mod);
 
-	/** 
-		支持pickler 方法 
+	/**
+		支持pickler 方法
 	*/
 	static PyObject* __py_reduce_ex__(PyObject* self, PyObject* protocol);
-	
+
 	/**
 		unpickle方法
 	*/
@@ -156,7 +156,24 @@ public:
 
 	void c_str(char* s, size_t size);
 
-	void reload();
+	/**
+		开启一轮组件热更。
+		Entity reload 和全局组件遍历都可能触达同一个 EntityComponent；
+		reloadGeneration_ 用于标记本轮热更代次，避免同一组件重复换类/补属性。
+	*/
+	static void beginReload();
+
+	/**
+		返回本轮热更中实际刷新过的组件数量，用于 reload 日志统计。
+	*/
+	static uint32 reloadCount() { return reloadCount_; }
+
+	/**
+		刷新在线 EntityComponent 的脚本类型和描述信息。
+		fullReload=false 时只更新行为层，不重置组件数据；
+		fullReload=true 时在旧描述存在的前提下补齐新增属性。
+	*/
+	void reload(bool fullReload);
 
 	typedef std::vector<EntityComponent*> ENTITY_COMPONENTS;
 	static ENTITY_COMPONENTS entity_components;
@@ -171,7 +188,7 @@ public:
 	PyObject* createFromPersistentStream(ScriptDefModule* pScriptModule, MemoryStream* mstream);
 
 	PropertyDescription* getProperty(ENTITY_PROPERTY_UID child_uid);
-	
+
 	void componentType(COMPONENT_TYPE ctype) {
 		componentType_ = ctype;
 	}
@@ -186,7 +203,7 @@ public:
 		return pComponentDescrs_;
 	}
 
-	typedef std::tr1::function<void (EntityComponent*, const PropertyDescription*, PyObject*)> OnDataChangedEvent;
+	typedef std::function<void (EntityComponent*, const PropertyDescription*, PyObject*)> OnDataChangedEvent;
 
 	static void onEntityDestroy(PyObject* pEntity, ScriptDefModule* pEntityScriptDescrs, bool callScript, bool beforeDestroy);
 	void onOwnerDestroyBegin(PyObject* pEntity, ScriptDefModule* pEntityScriptDescrs, bool callScript);
@@ -259,6 +276,8 @@ protected:
 	}
 
 	ENTITY_COMPONENTS::size_type			atIdx_;
+	// 最近一次刷新该组件的热更代次，用于防止同一轮 reload 重复处理。
+	uint32									lastReloadGeneration_;
 
 	OnDataChangedEvent						onDataChangedEvent_;
 
@@ -266,6 +285,10 @@ protected:
 
 private:
 	int32									clientappID_;
+	// 当前全局组件热更代次，每次 EntityComponent::beginReload 自增。
+	static uint32							reloadGeneration_;
+	// 当前热更代次实际刷新成功的组件数量，用于日志输出。
+	static uint32							reloadCount_;
 };
 
 }

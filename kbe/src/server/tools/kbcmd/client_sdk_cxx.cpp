@@ -379,6 +379,7 @@ bool ClientSDKCXX::writeEngineMessagesModuleMessage(Network::ExposedMessageInfo&
 
 	fileBody() += fmt::format("void Message_{}::handleMessage(MemoryStream& msgstream)\n", messageInfos.name);
 	fileBody() += "{\n";
+	fileBody() += "\ttry\n\t{\n";
 
 	if (messageInfos.argsTypes.size() == 0)
 	{
@@ -447,6 +448,10 @@ bool ClientSDKCXX::writeEngineMessagesModuleMessage(Network::ExposedMessageInfo&
 		initBody_ += fmt::format("\t\tMessages::baseappMessages.Add({}, Messages::messages[\"{}\"]);\n\n", messageInfos.id, messageInfos.name);
 	}
 
+	fileBody() += "\t}\n";
+	fileBody() += "\tcatch (...)\n\t{\n";
+	fileBody() += fmt::format("\t\tSCREEN_ERROR_MSG(\"Message_%s::handleMessage: exception!\");\n", messageInfos.name);
+	fileBody() += "\t}\n";
 	fileBody() += "}\n\n";
 
 	changeContextToHeader();
@@ -794,7 +799,7 @@ bool ClientSDKCXX::writeEntityCallBegin(ScriptDefModule* pScriptDefModule)
 		}
 	}
 
-	fileBody() += std::string("\n// defined in */scripts/entity_defs/") + pScriptDefModule->getName() + ".def\n\n";
+	fileBody() += std::string("\n// defined in ") + pScriptDefModule->getDefSourceFile() + "\n\n";
 	fileBody() += namespaceNameBegin;
 	return true;
 }
@@ -2171,7 +2176,7 @@ bool ClientSDKCXX::writeEntityModuleBegin(ScriptDefModule* pEntityScriptDefModul
 
 	
 
-	fileBody() += std::string("\n// defined in */scripts/entity_defs/") + pEntityScriptDefModule->getName() + ".def\n";
+	fileBody() += std::string("\n// defined in ") + pEntityScriptDefModule->getDefSourceFile() + "\n";
 
 	if (pEntityScriptDefModule->isComponentModule())
 	{

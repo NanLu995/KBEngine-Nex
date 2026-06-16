@@ -9,16 +9,64 @@
 #include "entity_component.h"
 #include "pyscript/py_memorystream.h"
 #include "resmgr/resmgr.h"
+#include "resmgr/plugins/plugin_manager.h"
 #include "common/smartpointer.h"
 #include "entitydef/volatileinfo.h"
 #include "entitydef/entity_call.h"
 #include "entitydef/entity_component_call.h"
+#include "pyscript/py_platform.h"
+#include <algorithm>
+#include <set>
+#include <sys/stat.h>
 
 #ifndef CODE_INLINE
 #include "entitydef.inl"
 #endif
 
 namespace KBEngine{
+
+namespace
+{
+
+std::string normalizePluginPath(std::string path)
+{
+	std::replace(path.begin(), path.end(), '\\', '/');
+	return path;
+}
+
+bool pluginFileExists(const std::string& path)
+{
+	return access(path.c_str(), 0) == 0;
+}
+
+bool pluginEntityScriptExists(const PluginEntityDescriptor& entity, const std::string& folder)
+{
+	std::string file = normalizePluginPath(entity.pluginRootPath + "/" + folder + "/" + entity.name + ".py");
+	return pluginFileExists(file) || pluginFileExists(file + "c");
+}
+
+std::string findPluginComponentDefFile(const std::string& componentTypeName, std::string* pluginDefFilePath)
+{
+	const std::vector<PluginDescriptor>& plugins = PluginManager::instance().plugins();
+	for (std::vector<PluginDescriptor>::const_iterator iter = plugins.begin(); iter != plugins.end(); ++iter)
+	{
+		std::string defFile = normalizePluginPath(iter->rootPath + "/entity_defs/components/" + componentTypeName + ".def");
+		if (!pluginFileExists(defFile))
+			continue;
+
+		if (pluginDefFilePath)
+			*pluginDefFilePath = normalizePluginPath(iter->rootPath + "/entity_defs/");
+
+		INFO_MSG(fmt::format("EntityDef::loadComponents: use plugin component def [{}] from plugin [{}].\n",
+			defFile, iter->name));
+		return defFile;
+	}
+
+	return "";
+}
+
+}
+
 std::vector<ScriptDefModulePtr>	EntityDef::__scriptModules;
 std::vector<ScriptDefModulePtr>	EntityDef::__oldScriptModules;
 
@@ -40,7 +88,7 @@ EntityDef::Context EntityDef::__context;
 
 // 方法产生时自动产生utype用的
 ENTITY_METHOD_UID g_methodUtypeAuto = 1;
-std::vector<ENTITY_METHOD_UID> g_methodCusUtypes;																									
+std::vector<ENTITY_METHOD_UID> g_methodCusUtypes;
 
 ENTITY_PROPERTY_UID g_propertyUtypeAuto = 1;
 std::vector<ENTITY_PROPERTY_UID> g_propertyUtypes;
@@ -52,6 +100,454 @@ ENTITY_SCRIPT_UID g_scriptUtype = 1;
 EntityDef::GetEntityFunc EntityDef::__getEntityFunc;
 
 static std::map<std::string, std::vector<PropertyDescription*> > g_logComponentPropertys;
+// 记录脚本模块文件的版本戳。key 使用 Python 模块名，例如 Avatar、interfaces.Teleport。
+// 初始化加载时建立基线；热更时只有版本戳变化的模块才真正 PyImport_ReloadModule。
+static std::map<std::string, uint64> g_scriptModuleStamps;
+static std::map<std::string, uint64> g_scriptFileStamps;
+// 本轮 reload 中实际检测到变更并执行 reload 的脚本文件列表，用于最终日志输出。
+static std::vector<std::string> g_reloadChangedFiles;
+// 本轮 reload 中检查过但未变化的脚本文件列表，只在汇总中输出数量，避免日志刷屏。
+static std::vector<std::string> g_reloadSkippedFiles;
+// changed/skipped 日志按物理文件去重。历史脚本可能同时存在 interfaces.Teleport 和 Teleport 两个模块名，
+// 它们指向同一个 Teleport.py；reload 可以分别处理两个模块对象，但汇总日志只展示一个文件。
+static std::set<std::string> g_reloadChangedFileKeys;
+static std::set<std::string> g_reloadSkippedFileKeys;
+// 本轮 reload 的结构化统计。EntityDef::reload 返回它，上层据此决定是否继续刷新在线对象。
+static ReloadScriptDefStats g_reloadStats;
+
+//-------------------------------------------------------------------------------------
+static uint64 getScriptFileStamp(const std::string& filePath)
+{
+	// 使用“最后修改时间 + 文件大小”作为热更判断依据。
+	// Windows 下优先读取 FILETIME，精度高于 stat 的秒级 st_mtime，避免连续快速保存时漏判。
+#if KBE_PLATFORM == PLATFORM_WIN32
+	WIN32_FILE_ATTRIBUTE_DATA fileInfo;
+	if (GetFileAttributesExA(filePath.c_str(), GetFileExInfoStandard, &fileInfo))
+	{
+		ULARGE_INTEGER mtime;
+		mtime.HighPart = fileInfo.ftLastWriteTime.dwHighDateTime;
+		mtime.LowPart = fileInfo.ftLastWriteTime.dwLowDateTime;
+
+		ULARGE_INTEGER size;
+		size.HighPart = fileInfo.nFileSizeHigh;
+		size.LowPart = fileInfo.nFileSizeLow;
+
+		return (uint64)(mtime.QuadPart ^ (size.QuadPart << 1));
+	}
+#endif
+
+	// 非 Windows 平台保留 stat 兜底；加入 st_size 后，即使同一秒内保存且大小变化也能识别。
+	struct stat st;
+	if (stat(filePath.c_str(), &st) != 0)
+		return 0;
+
+	return ((uint64)st.st_mtime << 32) ^ (uint64)st.st_size;
+}
+
+//-------------------------------------------------------------------------------------
+static std::string getPyModuleFilePath(PyObject* pyModule)
+{
+	// 从 Python 模块对象拿到真实文件路径。这里统一转为 / 分隔，方便后续日志和路径比较。
+	// 失败时返回空字符串，调用方会保守地认为模块需要 reload。
+	PyObject* fileobj = PyModule_GetFilenameObject(pyModule);
+	if (!fileobj)
+	{
+		PyErr_Clear();
+		return "";
+	}
+
+	const char* filePath = PyUnicode_AsUTF8(fileobj);
+	std::string result = filePath ? filePath : "";
+	Py_DECREF(fileobj);
+
+	if (result.size() > 0)
+		result = normalizePluginPath(result);
+
+	return result;
+}
+
+//-------------------------------------------------------------------------------------
+static bool isTrackedScriptFileChanged(const std::string& moduleName, const std::string& filePath, uint64& currStamp, bool& firstTrack)
+{
+	// 返回 true 表示需要 reload。
+	// 如果模块第一次进入跟踪表，只记录当前文件版本戳作为基线，不把它当成变更。
+	// 这样第一次 reloadScript(False) 不会因为“没有历史记录”而把所有已加载依赖都 reload 一遍。
+	// 正常启动加载完成后会提前建立依赖模块基线；这里仍然保留懒加载兜底，覆盖后续才 import 的脚本。
+	firstTrack = false;
+	currStamp = getScriptFileStamp(filePath);
+	if (currStamp == 0)
+		return true;
+
+	std::map<std::string, uint64>::iterator iter = g_scriptModuleStamps.find(moduleName);
+	if (iter == g_scriptModuleStamps.end())
+	{
+		g_scriptModuleStamps[moduleName] = currStamp;
+		std::map<std::string, uint64>::iterator fileIter = g_scriptFileStamps.find(filePath);
+		if (fileIter != g_scriptFileStamps.end() && fileIter->second != currStamp)
+		{
+			fileIter->second = currStamp;
+			return true;
+		}
+
+		g_scriptFileStamps[filePath] = currStamp;
+		firstTrack = true;
+		return false;
+	}
+
+	if (iter->second != currStamp)
+	{
+		iter->second = currStamp;
+		g_scriptFileStamps[filePath] = currStamp;
+		return true;
+	}
+
+	g_scriptFileStamps[filePath] = currStamp;
+	return false;
+}
+
+//-------------------------------------------------------------------------------------
+static void rememberReloadFile(bool changed, const std::string& moduleName, const std::string& filePath)
+{
+	// 统一记录本轮 reload 的文件检查结果。changed 列表会逐条打印，
+	// skipped 列表只统计数量，避免每次热更输出大量未变化文件。
+	// key 优先使用文件路径，保证同一个 .py 被多个模块名引用时只在汇总里出现一次。
+	std::string key = filePath.empty() ? moduleName : filePath;
+	std::string text = fmt::format("{} ({})", filePath, moduleName);
+	if (changed)
+	{
+		if (g_reloadChangedFileKeys.insert(key).second)
+			g_reloadChangedFiles.push_back(text);
+	}
+	else
+	{
+		if (g_reloadSkippedFileKeys.insert(key).second)
+			g_reloadSkippedFiles.push_back(text);
+	}
+}
+
+//-------------------------------------------------------------------------------------
+static std::string getPythonModuleLeafName(const std::string& moduleName)
+{
+	// 将 interfaces.Teleport 规约为 Teleport，用来兼容历史脚本的裸 import。
+	// 同一个文件可能被 Python 以 Teleport 和 interfaces.Teleport 两个名字加载，
+	// 类对象的 __module__ 不一定和当前遍历到的模块名完全一致。
+	std::string::size_type pos = moduleName.find_last_of('.');
+	return pos == std::string::npos ? moduleName : moduleName.substr(pos + 1);
+}
+
+//-------------------------------------------------------------------------------------
+static void collectModuleTypes(PyObject* pyModule, const std::string& moduleName, std::map<std::string, PyObject*>& oldTypes)
+{
+	// reload dependency module 前收集旧类对象。
+	// 例如 Avatar 继承旧的 interfaces.Teleport.Teleport；只 reload Teleport.py 时，
+	// Avatar 的基类指针不会自动变成新类对象，所以后续需要把新类属性拷贝回旧类对象。
+	// 这里兼容两种模块名：完整包名 interfaces.Teleport 和历史裸名 Teleport。
+	std::string moduleLeafName = getPythonModuleLeafName(moduleName);
+	PyObject* pyDict = PyModule_GetDict(pyModule);
+	if (!pyDict)
+		return;
+
+	PyObject* key = NULL;
+	PyObject* value = NULL;
+	Py_ssize_t pos = 0;
+	while (PyDict_Next(pyDict, &pos, &key, &value))
+	{
+		if (!PyUnicode_Check(key) || !PyType_Check(value))
+			continue;
+
+		PyObject* pyTypeModule = PyObject_GetAttrString(value, "__module__");
+		if (!pyTypeModule)
+		{
+			PyErr_Clear();
+			continue;
+		}
+
+		const char* typeModule = PyUnicode_AsUTF8(pyTypeModule);
+		std::string typeModuleName = typeModule ? typeModule : "";
+		bool sameModule = typeModuleName == moduleName ||
+			getPythonModuleLeafName(typeModuleName) == moduleLeafName;
+		Py_DECREF(pyTypeModule);
+
+		if (!sameModule)
+			continue;
+
+		const char* name = PyUnicode_AsUTF8(key);
+		if (!name)
+		{
+			PyErr_Clear();
+			continue;
+		}
+
+		Py_INCREF(value);
+		oldTypes[name] = value;
+	}
+}
+
+//-------------------------------------------------------------------------------------
+static bool shouldSkipTypeAttr(const std::string& attrName)
+{
+	// __dict__/__weakref__ 是 Python 类型对象上的特殊描述符，不应从新类拷贝覆盖旧类。
+	return attrName == "__dict__" || attrName == "__weakref__";
+}
+
+//-------------------------------------------------------------------------------------
+static bool shouldReportStaleTypeAttr(const std::string& attrName)
+{
+	// 删除方法时旧类上会保留旧属性。为了让开发者知道“删除没有真正生效”，
+	// 只报告普通业务属性/方法；Python 内部双下划线属性噪声较大，不计入 stale attrs。
+	return !(attrName.size() >= 4 &&
+		attrName[0] == '_' && attrName[1] == '_' &&
+		attrName[attrName.size() - 1] == '_' && attrName[attrName.size() - 2] == '_');
+}
+
+//-------------------------------------------------------------------------------------
+static void patchOldTypeFromNewType(PyObject* pyOldType, PyObject* pyNewType)
+{
+	// 将 reload 后新类对象上的属性同步到 reload 前的旧类对象。
+	// 这样未修改的 Entity 主脚本不需要额外 reload，也能通过旧基类对象拿到新的 interface 方法实现。
+	// 注意这里主要解决“方法替换/新增”的场景；删除旧方法不会强行从旧类删除，以降低破坏性。
+	PyObject* pyNewDict = PyObject_GetAttrString(pyNewType, "__dict__");
+	if (!pyNewDict)
+	{
+		PyErr_Clear();
+		return;
+	}
+
+	PyObject* pyItems = PyMapping_Items(pyNewDict);
+	if (!pyItems)
+	{
+		Py_DECREF(pyNewDict);
+		PyErr_Clear();
+		return;
+	}
+
+	Py_ssize_t size = PyList_Size(pyItems);
+	for (Py_ssize_t i = 0; i < size; ++i)
+	{
+		PyObject* pyItem = PyList_GetItem(pyItems, i);
+		if (!pyItem || !PyTuple_Check(pyItem) || PyTuple_Size(pyItem) != 2)
+			continue;
+
+		PyObject* pyKey = PyTuple_GET_ITEM(pyItem, 0);
+		PyObject* pyValue = PyTuple_GET_ITEM(pyItem, 1);
+		if (!PyUnicode_Check(pyKey))
+			continue;
+
+		const char* key = PyUnicode_AsUTF8(pyKey);
+		if (!key)
+		{
+			PyErr_Clear();
+			continue;
+		}
+
+		if (shouldSkipTypeAttr(key))
+			continue;
+
+		if (PyObject_SetAttrString(pyOldType, key, pyValue) == -1)
+		{
+			WARNING_MSG(fmt::format("EntityDef::patchOldTypeFromNewType: set attr({}) failed.\n", key));
+			PyErr_Clear();
+		}
+	}
+
+	Py_DECREF(pyItems);
+
+	PyObject* pyOldDict = PyObject_GetAttrString(pyOldType, "__dict__");
+	if (pyOldDict)
+	{
+		PyObject* pyOldItems = PyMapping_Items(pyOldDict);
+		if (pyOldItems)
+		{
+			Py_ssize_t oldSize = PyList_Size(pyOldItems);
+			for (Py_ssize_t i = 0; i < oldSize; ++i)
+			{
+				PyObject* pyItem = PyList_GetItem(pyOldItems, i);
+				if (!pyItem || !PyTuple_Check(pyItem) || PyTuple_Size(pyItem) != 2)
+					continue;
+
+				PyObject* pyKey = PyTuple_GET_ITEM(pyItem, 0);
+				if (!PyUnicode_Check(pyKey))
+					continue;
+
+				const char* key = PyUnicode_AsUTF8(pyKey);
+				if (!key)
+				{
+					PyErr_Clear();
+					continue;
+				}
+
+				if (!shouldReportStaleTypeAttr(key) || PyMapping_HasKey(pyNewDict, pyKey))
+					continue;
+
+				++g_reloadStats.staleAttrsKept;
+				WARNING_MSG(fmt::format("EntityDef::patchOldTypeFromNewType: stale attr kept on old class, attr={}. "
+					"Deleted script attributes are not removed during safe reload.\n", key));
+			}
+
+			Py_DECREF(pyOldItems);
+		}
+		else
+		{
+			PyErr_Clear();
+		}
+
+		Py_DECREF(pyOldDict);
+	}
+	else
+	{
+		PyErr_Clear();
+	}
+
+	Py_DECREF(pyNewDict);
+	PyType_Modified((PyTypeObject*)pyOldType);
+}
+
+//-------------------------------------------------------------------------------------
+static void patchReloadedModuleTypes(PyObject* pyModule, const std::map<std::string, PyObject*>& oldTypes)
+{
+	// 对一个刚 reload 完的模块，把其中同名新类同步回 reload 前收集到的旧类对象。
+	// 如果新模块没有同名类或同名对象不再是 type，则跳过，避免误改普通变量。
+	std::map<std::string, PyObject*>::const_iterator iter = oldTypes.begin();
+	for (; iter != oldTypes.end(); ++iter)
+	{
+		PyObject* pyNewType = PyObject_GetAttrString(pyModule, iter->first.c_str());
+		if (!pyNewType)
+		{
+			PyErr_Clear();
+			continue;
+		}
+
+		if (PyType_Check(pyNewType) && pyNewType != iter->second)
+			patchOldTypeFromNewType(iter->second, pyNewType);
+
+		Py_DECREF(pyNewType);
+	}
+}
+
+//-------------------------------------------------------------------------------------
+static void releaseCollectedTypes(std::map<std::string, PyObject*>& oldTypes)
+{
+	// collectModuleTypes 对旧类对象做了 INCREF，reload/patch 结束后统一释放。
+	std::map<std::string, PyObject*>::iterator iter = oldTypes.begin();
+	for (; iter != oldTypes.end(); ++iter)
+		Py_DECREF(iter->second);
+
+	oldTypes.clear();
+}
+
+//-------------------------------------------------------------------------------------
+static void rememberInitialScriptFileStamp(const std::string& moduleName, const std::string& filePath)
+{
+	// 进程启动时导入 Entity/Component 主模块会经过 loadScriptModule，
+	// 在这里记录初始文件版本戳，后续 reloadScript(False) 才能判断主模块是否真的变化。
+	if (filePath.empty())
+		return;
+
+	uint64 currStamp = getScriptFileStamp(filePath);
+	if (currStamp > 0)
+	{
+		g_scriptModuleStamps[moduleName] = currStamp;
+		g_scriptFileStamps[filePath] = currStamp;
+	}
+}
+
+//-------------------------------------------------------------------------------------
+static std::string getCurrentComponentScriptPath(const std::string& entitiesPath)
+{
+	// 把 scripts 根目录收敛到当前进程真正可执行的脚本目录。
+	// cellapp 只看 scripts/cell，baseapp 只看 scripts/base，避免跨组件扫描导致 import 错误。
+	std::string dependencyPath = normalizePluginPath(entitiesPath);
+	while (dependencyPath.size() > 0 && dependencyPath[dependencyPath.size() - 1] != '/' && dependencyPath[dependencyPath.size() - 1] != '\\')
+		dependencyPath += "/";
+
+	switch (g_componentType)
+	{
+	case BASEAPP_TYPE:
+		dependencyPath += "base";
+		break;
+	case CELLAPP_TYPE:
+		dependencyPath += "cell";
+		break;
+	default:
+		return "";
+	}
+
+	return dependencyPath;
+}
+
+//-------------------------------------------------------------------------------------
+static void rememberLoadedDependencyScriptFileStamps(const std::string& entitiesPath)
+{
+	// 启动阶段 Entity 主脚本 import 的 interface/helper 模块不会经过 loadScriptModule。
+	// 如果不给这些已加载模块建立文件版本戳基线，第一次 reloadScript(False) 就只能把它们当成未知模块。
+	// 这里直接遍历 sys.modules，将当前组件脚本目录下已经加载的 .py 全部纳入追踪。
+	std::string dependencyPath = getCurrentComponentScriptPath(entitiesPath);
+	if (dependencyPath.empty() || access(dependencyPath.c_str(), 0) != 0)
+		return;
+
+	std::string rootPath = dependencyPath;
+	while (rootPath.size() > 0 && (rootPath[rootPath.size() - 1] == '/' || rootPath[rootPath.size() - 1] == '\\'))
+		rootPath.erase(rootPath.size() - 1, 1);
+
+	PyObject* sysModules = PyImport_GetModuleDict();
+	PyObject* key = NULL;
+	PyObject* value = NULL;
+	Py_ssize_t pos = 0;
+	uint32 tracked = 0;
+	while (PyDict_Next(sysModules, &pos, &key, &value))
+	{
+		if (!PyUnicode_Check(key) || !PyModule_Check(value))
+			continue;
+
+		const char* moduleName = PyUnicode_AsUTF8(key);
+		if (!moduleName)
+		{
+			PyErr_Clear();
+			continue;
+		}
+
+		std::string filePath = getPyModuleFilePath(value);
+		if (filePath.empty() || filePath.find(rootPath) != 0)
+			continue;
+
+		rememberInitialScriptFileStamp(moduleName, filePath);
+		++tracked;
+	}
+
+	INFO_MSG(fmt::format("EntityDef::rememberLoadedDependencyScriptFileStamps: path={}, tracked={}.\n",
+		dependencyPath, tracked));
+}
+
+//-------------------------------------------------------------------------------------
+static void logReloadChangedFiles()
+{
+	// 本轮 EntityDef reload 完成后输出变更文件汇总。
+	// 只逐条打印真正 reload 的文件，未变化文件只给数量，方便从日志里直接定位本次热更内容。
+	g_reloadStats.changedFiles = (uint32)g_reloadChangedFiles.size();
+	g_reloadStats.skippedFiles = (uint32)g_reloadSkippedFiles.size();
+
+	if (g_reloadChangedFiles.empty())
+	{
+		INFO_MSG(fmt::format("EntityDef::reload: no changed script files, skippedFiles={}.\n",
+			g_reloadSkippedFiles.size()));
+		return;
+	}
+
+	INFO_MSG(fmt::format("EntityDef::reload: changed script files count={}, skippedFiles={}.\n",
+		g_reloadChangedFiles.size(), g_reloadSkippedFiles.size()));
+
+	std::vector<std::string>::iterator iter = g_reloadChangedFiles.begin();
+	for (; iter != g_reloadChangedFiles.end(); ++iter)
+	{
+		INFO_MSG(fmt::format("EntityDef::reload: changed script file: {}\n", (*iter)));
+	}
+
+	if (g_reloadStats.duplicateModulePatches > 0 || g_reloadStats.staleAttrsKept > 0)
+	{
+		INFO_MSG(fmt::format("EntityDef::reload: duplicateModulePatches={}, staleAttrsKept={}.\n",
+			g_reloadStats.duplicateModulePatches, g_reloadStats.staleAttrsKept));
+	}
+}
 
 //-------------------------------------------------------------------------------------
 EntityDef::EntityDef()
@@ -117,11 +613,325 @@ bool EntityDef::isReload()
 }
 
 //-------------------------------------------------------------------------------------
-void EntityDef::reload(bool fullReload)
+bool EntityDef::reloadDependencyScriptModules(std::string entitiesPath)
+{
+	// __entitiesPath 指向用户 scripts 根目录。依赖热更必须收敛到当前进程所属目录：
+	// cellapp 只处理 scripts/cell，baseapp 只处理 scripts/base。
+	// 如果扫描整个 scripts，会在 cell 进程误 import base.Account，导致 KBEngine.Proxy 不存在。
+	std::string dependencyPath = getCurrentComponentScriptPath(entitiesPath);
+	if (dependencyPath.empty())
+	{
+		INFO_MSG(fmt::format("EntityDef::reloadDependencyScriptModules: skip componentType={}.\n",
+			COMPONENT_NAME_EX(g_componentType)));
+		return true;
+	}
+
+	if (access(dependencyPath.c_str(), 0) != 0)
+	{
+		// 某些组件或工具进程可能没有对应脚本目录，这不应阻断 reload。
+		WARNING_MSG(fmt::format("EntityDef::reloadDependencyScriptModules: dependency path({}) not found.\n",
+			dependencyPath));
+		return true;
+	}
+
+	// Entity/Component 主模块由 loadAllEntityScriptModules/loadAllComponentScriptModules 负责。
+	// 这里记录它们的名字，后续扫描到同名根目录脚本时跳过，避免重复 reload 破坏原有检查流程。
+	std::set<std::string> ownedScriptModules;
+	std::vector<ScriptDefModulePtr>::iterator iter = EntityDef::__scriptModules.begin();
+	for (; iter != EntityDef::__scriptModules.end(); ++iter)
+	{
+		ownedScriptModules.insert((*iter)->getName());
+
+		const ScriptDefModule::COMPONENTDESCRIPTION_MAP& componentDescrs = (*iter)->getComponentDescrs();
+		ScriptDefModule::COMPONENTDESCRIPTION_MAP::const_iterator compIter = componentDescrs.begin();
+		for (; compIter != componentDescrs.end(); ++compIter)
+		{
+			ownedScriptModules.insert(compIter->second->getName());
+		}
+	}
+
+	wchar_t* wentitiesPath = strutil::char2wchar(dependencyPath.c_str());
+	if (!wentitiesPath)
+	{
+		ERROR_MSG("EntityDef::reloadDependencyScriptModules: char2wchar entitiesPath failed.\n");
+		return false;
+	}
+
+	std::vector<std::wstring> results;
+	Resmgr::getSingleton().listPathRes(wentitiesPath, L"py", results);
+	free(wentitiesPath);
+
+	// rootPath 用来把绝对路径裁剪为相对模块路径，例如：
+	// D:/.../scripts/cell/interfaces/Teleport.py -> interfaces.Teleport。
+	std::string rootPath = dependencyPath;
+	while (rootPath.size() > 0 && (rootPath[rootPath.size() - 1] == '/' || rootPath[rootPath.size() - 1] == '\\'))
+		rootPath.erase(rootPath.size() - 1, 1);
+
+	// rootModules：cell/SpaceContext.py 这类当前组件根目录 helper。
+	// interfaceModules：cell/interfaces/Teleport.py 这类 mixin/interface，必须在 Entity 主脚本前 reload。
+	// otherModules：当前组件目录下其他子包，放在最后处理。
+	std::vector<std::string> rootModules;
+	std::vector<std::string> interfaceModules;
+	std::vector<std::string> otherModules;
+	// 兼容历史脚本曾经通过 import Teleport 直接导入 interface 文件的情况。
+	// 正常路径是 interfaces.Teleport，但 sys.modules 里可能还留有裸模块 Teleport。
+	std::vector<std::string> aliasModules;
+	std::vector<std::wstring>::iterator resultIter = results.begin();
+	for (; resultIter != results.end(); ++resultIter)
+	{
+		std::wstring wstrpath = (*resultIter);
+
+		if (wstrpath.find(L"__pycache__") != std::wstring::npos)
+			continue;
+
+		if (wstrpath.find(L"__init__.") != std::wstring::npos)
+			continue;
+
+		std::pair<std::wstring, std::wstring> pathPair = script::PyPlatform::splitPath(wstrpath);
+		std::pair<std::wstring, std::wstring> filePair = script::PyPlatform::splitText(pathPair.second);
+
+		if (filePair.first.size() == 0)
+			continue;
+
+		char* cpacketPath = strutil::wchar2char(pathPair.first.c_str());
+		char* cmoduleName = strutil::wchar2char(filePair.first.c_str());
+
+		if (!cpacketPath || !cmoduleName)
+		{
+			free(cpacketPath);
+			free(cmoduleName);
+			continue;
+		}
+
+		std::string packetPath = normalizePluginPath(cpacketPath);
+		std::string moduleName = cmoduleName;
+		free(cpacketPath);
+		free(cmoduleName);
+
+		if (packetPath.find(rootPath) == 0)
+			packetPath.erase(0, rootPath.size());
+
+		while (packetPath.size() > 0 && (packetPath[0] == '/' || packetPath[0] == '\\'))
+			packetPath.erase(0, 1);
+
+		strutil::kbe_replace(packetPath, "/", ".");
+		strutil::kbe_replace(packetPath, "\\", ".");
+
+		if (packetPath == "components")
+			continue;
+
+		// 根目录下的 Entity 主模块要交给原始 EntityDef 加载流程。
+		// 非 fullReload 时主模块会被 loadScriptModule 重新 import/reload 并做 def 校验。
+		if (packetPath.size() == 0 && ownedScriptModules.find(moduleName) != ownedScriptModules.end())
+			continue;
+
+		std::string fullModuleName = packetPath.size() == 0 ? moduleName : packetPath + "." + moduleName;
+
+		if (packetPath == "interfaces" || packetPath.find("interfaces.") == 0)
+			interfaceModules.push_back(fullModuleName);
+		else if (packetPath.size() == 0)
+			rootModules.push_back(fullModuleName);
+		else
+			otherModules.push_back(fullModuleName);
+
+		if (packetPath == "interfaces")
+			aliasModules.push_back(moduleName);
+	}
+
+	std::vector<std::string> modules;
+	// reload 顺序很重要：helper -> interfaces -> other -> Entity/Component 主脚本。
+	// 例如 Teleport.py import SpaceContext，则 SpaceContext 必须先刷新。
+	modules.insert(modules.end(), rootModules.begin(), rootModules.end());
+	modules.insert(modules.end(), interfaceModules.begin(), interfaceModules.end());
+	modules.insert(modules.end(), otherModules.begin(), otherModules.end());
+
+	PyObject* sysModules = PyImport_GetModuleDict();
+	uint32 reloaded = 0;
+	uint32 unchanged = 0;
+	uint32 skippedNotLoaded = 0;
+	uint32 aliasReloaded = 0;
+	uint32 aliasUnchanged = 0;
+	bool ok = true;
+	std::map<std::string, PyObject*> reloadedModulesByFile;
+
+	std::vector<std::string>::iterator moduleIter = modules.begin();
+	for (; moduleIter != modules.end(); ++moduleIter)
+	{
+		PyObject* pyModule = PyDict_GetItemString(sysModules, moduleIter->c_str());
+		if (pyModule)
+		{
+			// 只 reload 已经加载过的模块。热更不主动 import 新模块，避免执行未参与当前进程的脚本顶层代码。
+			std::string filePath = getPyModuleFilePath(pyModule);
+			uint64 currStamp = 0;
+			bool firstTrack = false;
+			bool changed = filePath.empty() || isTrackedScriptFileChanged(*moduleIter, filePath, currStamp, firstTrack);
+			rememberReloadFile(changed, *moduleIter, filePath);
+
+			if (!changed)
+			{
+				++unchanged;
+				continue;
+			}
+
+			std::map<std::string, PyObject*> oldTypes;
+			collectModuleTypes(pyModule, *moduleIter, oldTypes);
+
+			std::map<std::string, PyObject*>::iterator reloadedIter = reloadedModulesByFile.find(filePath);
+			if (!filePath.empty() && reloadedIter != reloadedModulesByFile.end())
+			{
+				// 同一个物理文件可能被 Python 以多个模块名加载。文件已经 reload 过时，
+				// 不再重复执行顶层代码，只用已 reload 模块的新类去 patch 当前模块名下的旧类对象。
+				patchReloadedModuleTypes(reloadedIter->second, oldTypes);
+				releaseCollectedTypes(oldTypes);
+				++g_reloadStats.duplicateModulePatches;
+				INFO_MSG(fmt::format("EntityDef::reloadDependencyScriptModules: patch duplicate module={}, file={} without second reload.\n",
+					(*moduleIter), filePath));
+				continue;
+			}
+
+			PyObject* pyReloadedModule = PyImport_ReloadModule(pyModule);
+			if (!pyReloadedModule)
+			{
+				ERROR_MSG(fmt::format("EntityDef::reloadDependencyScriptModules: reload module({}) failed.\n",
+					(*moduleIter)));
+				PyErr_Print();
+				releaseCollectedTypes(oldTypes);
+				ok = false;
+				continue;
+			}
+
+			patchReloadedModuleTypes(pyReloadedModule, oldTypes);
+
+			// 关键修复：patch 完后必须把模块里的属性指回被 patch 的旧类对象。
+			// 否则下次 reload 时 collectModuleTypes 会从模块里拿到第一次 reload 创建的新类对象，
+			// 而不是 Entity 实际继承的原始类。连续两次 reload 只有第一次能生效。
+			// 注意：只在这里（主模块路径）执行，alias duplicate 路径不执行，避免覆盖。
+			for (std::map<std::string, PyObject*>::const_iterator ot = oldTypes.begin(); ot != oldTypes.end(); ++ot)
+			{
+				if (PyObject_SetAttrString(pyReloadedModule, ot->first.c_str(), ot->second) == -1)
+				{
+					WARNING_MSG(fmt::format("EntityDef::reloadDependencyScriptModules: "
+						"reset module attr '{}' to old type failed.\n", ot->first));
+					PyErr_Clear();
+				}
+			}
+
+			releaseCollectedTypes(oldTypes);
+			if (!filePath.empty())
+			{
+				Py_INCREF(pyReloadedModule);
+				reloadedModulesByFile[filePath] = pyReloadedModule;
+			}
+			Py_DECREF(pyReloadedModule);
+			++reloaded;
+			++g_reloadStats.reloadedModules;
+
+			INFO_MSG(fmt::format("EntityDef::reloadDependencyScriptModules: reload changed module={}, file={}, firstTrack={}, stamp={}.\n",
+				(*moduleIter), filePath, firstTrack, currStamp));
+		}
+		else
+		{
+			// 未加载模块说明当前进程尚未用到它，跳过即可。
+			// 后续如果 Entity 主脚本 import 它，会由 Python 正常 import 到最新文件。
+			++skippedNotLoaded;
+		}
+	}
+
+	// 兼容 sys.path 中 interfaces 目录直接可见时产生的裸模块名。
+	// 如果不存在裸模块，说明脚本一直使用 interfaces.X 路径，直接跳过。
+	std::vector<std::string>::iterator aliasIter = aliasModules.begin();
+	for (; aliasIter != aliasModules.end(); ++aliasIter)
+	{
+		PyObject* pyModule = PyDict_GetItemString(sysModules, aliasIter->c_str());
+		if (!pyModule)
+			continue;
+
+		std::string filePath = getPyModuleFilePath(pyModule);
+		uint64 currStamp = 0;
+		bool firstTrack = false;
+		bool changed = filePath.empty() || isTrackedScriptFileChanged(*aliasIter, filePath, currStamp, firstTrack);
+		rememberReloadFile(changed, *aliasIter, filePath);
+
+		if (!changed)
+		{
+			++aliasUnchanged;
+			continue;
+		}
+
+		std::map<std::string, PyObject*> oldTypes;
+		collectModuleTypes(pyModule, *aliasIter, oldTypes);
+
+		std::map<std::string, PyObject*>::iterator reloadedIter = reloadedModulesByFile.find(filePath);
+		if (!filePath.empty() && reloadedIter != reloadedModulesByFile.end())
+		{
+			// 裸模块别名指向已 reload 的同一个文件时，只 patch 旧类，不重复执行模块顶层代码。
+			patchReloadedModuleTypes(reloadedIter->second, oldTypes);
+			releaseCollectedTypes(oldTypes);
+			++aliasReloaded;
+			++g_reloadStats.duplicateModulePatches;
+			INFO_MSG(fmt::format("EntityDef::reloadDependencyScriptModules: patch duplicate alias module={}, file={} without second reload.\n",
+				(*aliasIter), filePath));
+			continue;
+		}
+
+		PyObject* pyReloadedModule = PyImport_ReloadModule(pyModule);
+		if (!pyReloadedModule)
+		{
+			ERROR_MSG(fmt::format("EntityDef::reloadDependencyScriptModules: reload alias module({}) failed.\n",
+				(*aliasIter)));
+			PyErr_Print();
+			releaseCollectedTypes(oldTypes);
+			ok = false;
+			continue;
+		}
+
+		patchReloadedModuleTypes(pyReloadedModule, oldTypes);
+		releaseCollectedTypes(oldTypes);
+		if (!filePath.empty())
+		{
+			Py_INCREF(pyReloadedModule);
+			reloadedModulesByFile[filePath] = pyReloadedModule;
+		}
+		Py_DECREF(pyReloadedModule);
+		++aliasReloaded;
+		++g_reloadStats.reloadedModules;
+
+		INFO_MSG(fmt::format("EntityDef::reloadDependencyScriptModules: reload changed alias module={}, file={}, firstTrack={}, stamp={}.\n",
+			(*aliasIter), filePath, firstTrack, currStamp));
+	}
+
+	INFO_MSG(fmt::format("EntityDef::reloadDependencyScriptModules: path={}, modules={}, reloaded={}, unchanged={}, skippedNotLoaded={}, aliasReloaded={}, aliasUnchanged={}, ok={}.\n",
+		dependencyPath, modules.size(), reloaded, unchanged, skippedNotLoaded, aliasReloaded, aliasUnchanged, ok));
+
+	std::map<std::string, PyObject*>::iterator reloadedIter = reloadedModulesByFile.begin();
+	for (; reloadedIter != reloadedModulesByFile.end(); ++reloadedIter)
+		Py_DECREF(reloadedIter->second);
+
+	return ok;
+}
+
+//-------------------------------------------------------------------------------------
+ReloadScriptDefStats EntityDef::reload(bool fullReload)
 {
 	g_isReload = true;
+	g_reloadStats = ReloadScriptDefStats();
+	g_reloadChangedFiles.clear();
+	g_reloadSkippedFiles.clear();
+	g_reloadChangedFileKeys.clear();
+	g_reloadSkippedFileKeys.clear();
 
 	script::entitydef::reload(fullReload);
+
+	// 先刷新当前组件目录下的 helper/interface 依赖模块，再刷新 Entity/Component 主模块。
+	// 这样 Avatar.py 重新定义 class 时继承到的是新的 interfaces.Teleport.Teleport。
+	if (!reloadDependencyScriptModules(EntityDef::__entitiesPath))
+	{
+		g_reloadStats.ok = false;
+		WARNING_MSG("EntityDef::reload: dependency script reload has errors, abort current reload before entity refresh.\n");
+		logReloadChangedFiles();
+		g_isReload = false;
+		return g_reloadStats;
+	}
 
 	if(fullReload)
 	{
@@ -143,14 +953,18 @@ void EntityDef::reload(bool fullReload)
 	}
 	else
 	{
-		loadAllEntityScriptModules(EntityDef::__entitiesPath, EntityDef::__scriptBaseTypes);
+		if (!loadAllEntityScriptModules(EntityDef::__entitiesPath, EntityDef::__scriptBaseTypes))
+			g_reloadStats.ok = false;
 	}
 
 	EntityDef::_isInit = true;
+	logReloadChangedFiles();
+	g_isReload = false;
+	return g_reloadStats;
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::initialize(std::vector<PyTypeObject*>& scriptBaseTypes, 
+bool EntityDef::initialize(std::vector<PyTypeObject*>& scriptBaseTypes,
 						   COMPONENT_TYPE loadComponentType)
 {
 	__loadComponentType = loadComponentType;
@@ -175,11 +989,136 @@ bool EntityDef::initialize(std::vector<PyTypeObject*>& scriptBaseTypes,
 
 	std::string entitiesFile = __entitiesPath + "entities.xml";
 	std::string defFilePath = __entitiesPath + "entity_defs/";
-	
-	// 初始化数据类别
-	// assets/scripts/entity_defs/types.xml
-	if(!DataTypes::initialize(defFilePath + "types.xml"))
+	std::string assetsTypesFile = defFilePath + "types.xml";
+
+	if (!PluginManager::instance().initialize())
 		return false;
+
+	// 插件 schema 前置：插件 types.xml 先于 assets/entity_defs/types.xml 加载。
+	// 这样 assets 的 .def 和 types.xml 可以直接引用启用插件提供的类型；启用插件即表示修改当前 assets schema。
+	const std::vector<PluginDescriptor>& plugins = PluginManager::instance().plugins();
+	if (!plugins.empty())
+	{
+		INFO_MSG(fmt::format("EntityDef::initialize: loading plugin type files before assets types, plugins={}.\n",
+			plugins.size()));
+
+		bool dataTypesInitialized = false;
+
+		std::vector<PluginTypeFileDescriptor> pluginTypeFiles = PluginManager::instance().getTypeFileDescriptors();
+		for (std::vector<PluginTypeFileDescriptor>::const_iterator iter = pluginTypeFiles.begin(); iter != pluginTypeFiles.end(); ++iter)
+		{
+			INFO_MSG(fmt::format("EntityDef::initialize: loading plugin [{}] types [{}] with prefix [{}].\n",
+				iter->pluginName, iter->file, iter->pluginPrefix));
+
+			if (!dataTypesInitialized)
+			{
+				if (!DataTypes::initialize(iter->file, iter->pluginPrefix, iter->file))
+					return false;
+
+				dataTypesInitialized = true;
+			}
+			else
+			{
+				if (!DataTypes::loadTypes(iter->file, iter->pluginPrefix, iter->file))
+					return false;
+			}
+		}
+
+		if (!dataTypesInitialized)
+		{
+			if (!DataTypes::initialize(assetsTypesFile))
+				return false;
+		}
+		else
+		{
+			if (!DataTypes::loadTypes(assetsTypesFile))
+				return false;
+		}
+	}
+	else
+	{
+		// 没有启用插件类型时保持原 KBE 路径：初始化基础类型，然后读取 assets/entity_defs/types.xml。
+		if(!DataTypes::initialize(assetsTypesFile))
+			return false;
+	}
+
+	// 插件实体同样前置注册。plugins.xml 的顺序就是插件实体的 utype/MD5 顺序；
+	// assets/entities.xml 随后加载，若出现同名实体会启动失败，避免静默覆盖插件 schema。
+	const std::vector<PluginEntityDescriptor>& pluginEntities = PluginManager::instance().entities();
+	if (!pluginEntities.empty())
+	{
+		INFO_MSG(fmt::format("EntityDef::initialize: loading {} plugin entity definition(s) before assets entities.\n",
+			pluginEntities.size()));
+	}
+
+	for (std::vector<PluginEntityDescriptor>::const_iterator iter = pluginEntities.begin(); iter != pluginEntities.end(); ++iter)
+	{
+		if (findScriptModule(iter->name.c_str(), false))
+		{
+			ERROR_MSG(fmt::format("EntityDef::initialize: plugin entity [{}] conflicts with an existing entity.\n",
+				iter->name));
+			return false;
+		}
+
+		ScriptDefModule* pScriptModule = registerNewScriptDefModule(iter->name);
+		pScriptModule->setDefSourceFile(iter->defFullPath);
+		SmartPointer<XML> defxml(new XML());
+
+		if (!pluginFileExists(iter->defFullPath))
+		{
+			ERROR_MSG(fmt::format("EntityDef::initialize: plugin entity [{}] def not found [{}]\n",
+				iter->name, iter->defFullPath));
+			return false;
+		}
+
+		if (iter->hasBase && !pluginEntityScriptExists(*iter, "base"))
+		{
+			ERROR_MSG(fmt::format("EntityDef::initialize: plugin [{}] entity [{}] declared base but script not found, manifest [{}].\n",
+				iter->pluginName, iter->name, iter->manifestFile));
+			return false;
+		}
+
+		if (iter->hasCell && !pluginEntityScriptExists(*iter, "cell"))
+		{
+			ERROR_MSG(fmt::format("EntityDef::initialize: plugin [{}] entity [{}] declared cell but script not found, manifest [{}].\n",
+				iter->pluginName, iter->name, iter->manifestFile));
+			return false;
+		}
+
+		if (iter->hasClient && !pluginEntityScriptExists(*iter, "client"))
+		{
+			ERROR_MSG(fmt::format("EntityDef::initialize: plugin [{}] entity [{}] declared client but script not found, manifest [{}].\n",
+				iter->pluginName, iter->name, iter->manifestFile));
+			return false;
+		}
+
+		if (!defxml->openSection(iter->defFullPath.c_str()))
+			return false;
+
+		TiXmlNode* defNode = defxml->getRootNode();
+		if (defNode != NULL)
+		{
+			std::string pluginDefPath = iter->defFullPath;
+			std::string::size_type pos = pluginDefPath.find_last_of("/\\");
+			pluginDefPath = (pos == std::string::npos) ? "" : pluginDefPath.substr(0, pos + 1);
+
+			if (!loadDefInfo(pluginDefPath, iter->name, defxml.get(), defNode, pScriptModule))
+			{
+				ERROR_MSG(fmt::format("EntityDef::initialize: failed to load plugin entity({}) module!\n",
+					iter->name));
+				return false;
+			}
+
+			if (!loadDetailLevelInfo(pluginDefPath, iter->name, defxml.get(), defNode, pScriptModule))
+			{
+				ERROR_MSG(fmt::format("EntityDef::initialize: failed to load plugin entity({}) DetailLevelInfo!\n",
+					iter->name));
+				return false;
+			}
+		}
+
+		pScriptModule->onLoaded();
+	}
 
 	// 打开这个entities.xml文件
 	// 允许纯脚本定义，则可能没有这个文件
@@ -194,14 +1133,31 @@ bool EntityDef::initialize(std::vector<PyTypeObject*>& scriptBaseTypes,
 		if (node == NULL)
 			return true;
 
-		// 开始遍历所有的entity节点
+		// 开始遍历所有的entity节点。插件实体已经前置注册，因此这里必须显式检查重名。
 		XML_FOR_BEGIN(node)
 		{
 			std::string moduleName = xml.get()->getKey(node);
 
+			if (findScriptModule(moduleName.c_str(), false))
+			{
+				const PluginEntityDescriptor* pluginEntity = PluginManager::instance().findEntity(moduleName);
+				if (pluginEntity)
+				{
+					ERROR_MSG(fmt::format("EntityDef::initialize: assets entity [{}] conflicts with plugin [{}] entity [{}], pluginManifest=[{}], assetsFile=[{}].\n",
+						moduleName, pluginEntity->pluginName, pluginEntity->name, pluginEntity->manifestFile, entitiesFile));
+				}
+				else
+				{
+					ERROR_MSG(fmt::format("EntityDef::initialize: assets entity [{}] is duplicated in assetsFile=[{}].\n",
+						moduleName, entitiesFile));
+				}
+				return false;
+			}
+
 			ScriptDefModule* pScriptModule = registerNewScriptDefModule(moduleName);
 
 			std::string deffile = defFilePath + moduleName + ".def";
+			pScriptModule->setDefSourceFile(deffile);
 			SmartPointer<XML> defxml(new XML());
 
 			if (!defxml->openSection(deffile.c_str()))
@@ -245,15 +1201,19 @@ bool EntityDef::initialize(std::vector<PyTypeObject*>& scriptBaseTypes,
 	if(loadComponentType == DBMGR_TYPE)
 		return true;
 
-	return loadAllEntityScriptModules(__entitiesPath, scriptBaseTypes) &&
-		initializeWatcher();
+	if (!loadAllEntityScriptModules(__entitiesPath, scriptBaseTypes))
+		return false;
+
+	rememberLoadedDependencyScriptFileStamps(__entitiesPath);
+
+	return initializeWatcher();
 }
 
 //-------------------------------------------------------------------------------------
 ScriptDefModule* EntityDef::registerNewScriptDefModule(const std::string& moduleName)
 {
 	ScriptDefModule* pScriptModule = findScriptModule(moduleName.c_str(), false);
-	
+
 	if (!pScriptModule)
 	{
 		__scriptTypeMappingUType[moduleName] = g_scriptUtype;
@@ -336,10 +1296,10 @@ MethodDescription* EntityDef::createMethodDescription(ScriptDefModule* pScriptMo
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::loadDefInfo(const std::string& defFilePath, 
-							const std::string& moduleName, 
-							XML* defxml, 
-							TiXmlNode* defNode, 
+bool EntityDef::loadDefInfo(const std::string& defFilePath,
+							const std::string& moduleName,
+							XML* defxml,
+							TiXmlNode* defNode,
 							ScriptDefModule* pScriptModule)
 {
 	if(!loadAllDefDescriptions(moduleName, defxml, defNode, pScriptModule))
@@ -349,7 +1309,7 @@ bool EntityDef::loadDefInfo(const std::string& defFilePath,
 
 		return false;
 	}
-	
+
 	// 遍历所有的interface， 并将他们的方法和属性加入到模块中
 	if(!loadInterfaces(defFilePath, moduleName, defxml, defNode, pScriptModule))
 	{
@@ -358,7 +1318,7 @@ bool EntityDef::loadDefInfo(const std::string& defFilePath,
 
 		return false;
 	}
-	
+
 	// 遍历所有的component， 并将组件属性加入到模块中
 	if (!loadComponents(defFilePath, moduleName, defxml, defNode, pScriptModule))
 	{
@@ -394,16 +1354,16 @@ bool EntityDef::loadDefInfo(const std::string& defFilePath,
 
 		return false;
 	}
-	
+
 	pScriptModule->autoMatchCompOwn();
 	return true;
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::loadDetailLevelInfo(const std::string& defFilePath, 
-									const std::string& moduleName, 
-									XML* defxml, 
-									TiXmlNode* defNode, 
+bool EntityDef::loadDetailLevelInfo(const std::string& defFilePath,
+									const std::string& moduleName,
+									XML* defxml,
+									TiXmlNode* defNode,
 									ScriptDefModule* pScriptModule)
 {
 	TiXmlNode* detailLevelNode = defxml->enterNode(defNode, "DetailLevels");
@@ -411,53 +1371,53 @@ bool EntityDef::loadDetailLevelInfo(const std::string& defFilePath,
 		return true;
 
 	DetailLevel& dlInfo = pScriptModule->getDetailLevel();
-	
+
 	TiXmlNode* node = defxml->enterNode(detailLevelNode, "NEAR");
 	TiXmlNode* radiusNode = defxml->enterNode(node, "radius");
 	TiXmlNode* hystNode = defxml->enterNode(node, "hyst");
-	if(node == NULL || radiusNode == NULL || hystNode == NULL) 
+	if(node == NULL || radiusNode == NULL || hystNode == NULL)
 	{
 		ERROR_MSG(fmt::format("EntityDef::loadDetailLevelInfo: failed to load entity:{} NEAR-DetailLevelInfo.\n",
 			moduleName.c_str()));
 
 		return false;
 	}
-	
+
 	dlInfo.level[DETAIL_LEVEL_NEAR].radius = (float)defxml->getValFloat(radiusNode);
 	dlInfo.level[DETAIL_LEVEL_NEAR].hyst = (float)defxml->getValFloat(hystNode);
-	
+
 	node = defxml->enterNode(detailLevelNode, "MEDIUM");
 	radiusNode = defxml->enterNode(node, "radius");
 	hystNode = defxml->enterNode(node, "hyst");
-	if(node == NULL || radiusNode == NULL || hystNode == NULL) 
+	if(node == NULL || radiusNode == NULL || hystNode == NULL)
 	{
 		ERROR_MSG(fmt::format("EntityDef::loadDetailLevelInfo: failed to load entity:{} MEDIUM-DetailLevelInfo.\n",
 			moduleName.c_str()));
 
 		return false;
 	}
-	
+
 	dlInfo.level[DETAIL_LEVEL_MEDIUM].radius = (float)defxml->getValFloat(radiusNode);
 
-	dlInfo.level[DETAIL_LEVEL_MEDIUM].radius += dlInfo.level[DETAIL_LEVEL_NEAR].radius + 
+	dlInfo.level[DETAIL_LEVEL_MEDIUM].radius += dlInfo.level[DETAIL_LEVEL_NEAR].radius +
 												dlInfo.level[DETAIL_LEVEL_NEAR].hyst;
 
 	dlInfo.level[DETAIL_LEVEL_MEDIUM].hyst = (float)defxml->getValFloat(hystNode);
-	
+
 	node = defxml->enterNode(detailLevelNode, "FAR");
 	radiusNode = defxml->enterNode(node, "radius");
 	hystNode = defxml->enterNode(node, "hyst");
-	if(node == NULL || radiusNode == NULL || hystNode == NULL) 
+	if(node == NULL || radiusNode == NULL || hystNode == NULL)
 	{
-		ERROR_MSG(fmt::format("EntityDef::loadDetailLevelInfo: failed to load entity:{} FAR-DetailLevelInfo.\n", 
+		ERROR_MSG(fmt::format("EntityDef::loadDetailLevelInfo: failed to load entity:{} FAR-DetailLevelInfo.\n",
 			moduleName.c_str()));
 
 		return false;
 	}
-	
+
 	dlInfo.level[DETAIL_LEVEL_FAR].radius = (float)defxml->getValFloat(radiusNode);
 
-	dlInfo.level[DETAIL_LEVEL_FAR].radius += dlInfo.level[DETAIL_LEVEL_MEDIUM].radius + 
+	dlInfo.level[DETAIL_LEVEL_FAR].radius += dlInfo.level[DETAIL_LEVEL_MEDIUM].radius +
 													dlInfo.level[DETAIL_LEVEL_MEDIUM].hyst;
 
 	dlInfo.level[DETAIL_LEVEL_FAR].hyst = (float)defxml->getValFloat(hystNode);
@@ -467,10 +1427,10 @@ bool EntityDef::loadDetailLevelInfo(const std::string& defFilePath,
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::loadVolatileInfo(const std::string& defFilePath, 
-									const std::string& moduleName, 
-									XML* defxml, 
-									TiXmlNode* defNode, 
+bool EntityDef::loadVolatileInfo(const std::string& defFilePath,
+									const std::string& moduleName,
+									XML* defxml,
+									TiXmlNode* defNode,
 									ScriptDefModule* pScriptModule)
 {
 	TiXmlNode* pNode = defxml->enterNode(defNode, "Volatile");
@@ -478,9 +1438,9 @@ bool EntityDef::loadVolatileInfo(const std::string& defFilePath,
 		return true;
 
 	VolatileInfo* pVolatileInfo = pScriptModule->getPVolatileInfo();
-	
+
 	TiXmlNode* node = defxml->enterNode(pNode, "position");
-	if(node) 
+	if(node)
 	{
 		pVolatileInfo->position((float)defxml->getValFloat(node));
 	}
@@ -493,7 +1453,7 @@ bool EntityDef::loadVolatileInfo(const std::string& defFilePath,
 	}
 
 	node = defxml->enterNode(pNode, "yaw");
-	if(node) 
+	if(node)
 	{
 		pVolatileInfo->yaw((float)defxml->getValFloat(node));
 	}
@@ -506,7 +1466,7 @@ bool EntityDef::loadVolatileInfo(const std::string& defFilePath,
 	}
 
 	node = defxml->enterNode(pNode, "pitch");
-	if(node) 
+	if(node)
 	{
 		pVolatileInfo->pitch((float)defxml->getValFloat(node));
 	}
@@ -519,7 +1479,7 @@ bool EntityDef::loadVolatileInfo(const std::string& defFilePath,
 	}
 
 	node = defxml->enterNode(pNode, "roll");
-	if(node) 
+	if(node)
 	{
 		pVolatileInfo->roll((float)defxml->getValFloat(node));
 	}
@@ -548,10 +1508,10 @@ bool EntityDef::loadVolatileInfo(const std::string& defFilePath,
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::loadInterfaces(const std::string& defFilePath, 
-							   const std::string& moduleName, 
-							   XML* defxml, 
-							   TiXmlNode* defNode, 
+bool EntityDef::loadInterfaces(const std::string& defFilePath,
+							   const std::string& moduleName,
+							   XML* defxml,
+							   TiXmlNode* defNode,
 							   ScriptDefModule* pScriptModule, bool ignoreComponents)
 {
 	TiXmlNode* implementsNode = defxml->enterNode(defNode, "Interfaces");
@@ -560,7 +1520,7 @@ bool EntityDef::loadInterfaces(const std::string& defFilePath,
 
 	XML_FOR_BEGIN(implementsNode)
 	{
-		if (defxml->getKey(implementsNode) != "interface" && defxml->getKey(implementsNode) != "Interface" && 
+		if (defxml->getKey(implementsNode) != "interface" && defxml->getKey(implementsNode) != "Interface" &&
 			defxml->getKey(implementsNode) != "type" && defxml->getKey(implementsNode) != "Type")
 			continue;
 
@@ -597,7 +1557,7 @@ bool EntityDef::loadInterfaces(const std::string& defFilePath,
 
 		if(!loadAllDefDescriptions(moduleName, interfaceXml.get(), interfaceRootNode, pScriptModule))
 		{
-			ERROR_MSG(fmt::format("EntityDef::initialize: interface[{}] error!\n", 
+			ERROR_MSG(fmt::format("EntityDef::initialize: interface[{}] error!\n",
 				interfaceName.c_str()));
 
 			return false;
@@ -678,7 +1638,23 @@ bool EntityDef::loadComponents(const std::string& defFilePath,
 			return false;
 		}
 
+		// 组件默认仍按 KBE 原规则从宿主实体同级 entity_defs/components 读取。
+		// 如果根 assets 没有该组件定义，则允许启用插件提供自己的组件 def：
+		// plugins/<Plugin>/entity_defs/components/<Component>.def。
+		// 这样 Avatar.def 只需要声明 <Type>BagComponent</Type>，组件的结构仍由插件目录维护。
+		std::string componentDefFilePath = defFilePath;
 		std::string componentfile = defFilePath + "components/" + componentTypeName + ".def";
+		if (!pluginFileExists(componentfile))
+		{
+			std::string pluginDefFilePath;
+			std::string pluginComponentFile = findPluginComponentDefFile(componentTypeName, &pluginDefFilePath);
+			if (!pluginComponentFile.empty())
+			{
+				componentfile = pluginComponentFile;
+				componentDefFilePath = pluginDefFilePath;
+			}
+		}
+
 		SmartPointer<XML> componentXml(new XML());
 		if (!componentXml.get()->openSection(componentfile.c_str()))
 			return false;
@@ -762,16 +1738,16 @@ bool EntityDef::loadComponents(const std::string& defFilePath,
 		}
 
 		// 遍历所有的interface， 并将他们的方法和属性加入到模块中
-		if (!loadInterfaces(defFilePath, componentTypeName, componentXml.get(), componentRootNode, pCompScriptDefModule, true))
+		if (!loadInterfaces(componentDefFilePath, componentTypeName, componentXml.get(), componentRootNode, pCompScriptDefModule, true))
 		{
 			ERROR_MSG(fmt::format("EntityDef::loadComponents: failed to load component:{} interface.\n",
 				componentTypeName.c_str()));
 
 			return false;
 		}
-		
+
 		// 加载父类所有的内容
-		if (!loadParentClass(defFilePath + "components/", componentTypeName, componentXml.get(), componentRootNode, pCompScriptDefModule))
+		if (!loadParentClass(componentDefFilePath + "components/", componentTypeName, componentXml.get(), componentRootNode, pCompScriptDefModule))
 		{
 			ERROR_MSG(fmt::format("EntityDef::loadComponents: failed to load component:{} parentClass.\n",
 				componentTypeName.c_str()));
@@ -780,7 +1756,7 @@ bool EntityDef::loadComponents(const std::string& defFilePath,
 		}
 
 		// 尝试加载detailLevel数据
-		if (!loadDetailLevelInfo(defFilePath, componentTypeName, componentXml.get(), componentRootNode, pCompScriptDefModule))
+		if (!loadDetailLevelInfo(componentDefFilePath, componentTypeName, componentXml.get(), componentRootNode, pCompScriptDefModule))
 		{
 			ERROR_MSG(fmt::format("EntityDef::loadComponents: failed to load component:{} DetailLevelInfo.\n",
 				componentTypeName.c_str()));
@@ -802,7 +1778,7 @@ bool EntityDef::loadComponents(const std::string& defFilePath,
 		{
 			if (pCompScriptDefModule->hasBase())
 				flags |= ED_FLAG_BASE_AND_CLIENT;
-			
+
 			if (pCompScriptDefModule->hasCell())
 				flags |= (ED_FLAG_ALL_CLIENTS | ED_FLAG_CELL_PUBLIC_AND_OWN | ED_FLAG_OTHER_CLIENTS | ED_FLAG_OWN_CLIENT);
 		}
@@ -887,10 +1863,10 @@ PropertyDescription* EntityDef::addComponentProperty(ENTITY_PROPERTY_UID utype,
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::loadParentClass(const std::string& defFilePath, 
-								const std::string& moduleName, 
-								XML* defxml, 
-								TiXmlNode* defNode, 
+bool EntityDef::loadParentClass(const std::string& defFilePath,
+								const std::string& moduleName,
+								XML* defxml,
+								TiXmlNode* defNode,
 								ScriptDefModule* pScriptModule)
 {
 	TiXmlNode* parentClassNode = defxml->enterNode(defNode, "Parent");
@@ -899,11 +1875,11 @@ bool EntityDef::loadParentClass(const std::string& defFilePath,
 
 	std::string parentClassName = defxml->getKey(parentClassNode);
 	std::string parentClassfile = defFilePath + parentClassName + ".def";
-	
+
 	SmartPointer<XML> parentClassXml(new XML());
 	if(!parentClassXml->openSection(parentClassfile.c_str()))
 		return false;
-	
+
 	TiXmlNode* parentClassdefNode = parentClassXml->getRootNode();
 	if(parentClassdefNode == NULL)
 	{
@@ -924,15 +1900,15 @@ bool EntityDef::loadParentClass(const std::string& defFilePath,
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::loadAllDefDescriptions(const std::string& moduleName, 
-									  XML* defxml, 
-									  TiXmlNode* defNode, 
+bool EntityDef::loadAllDefDescriptions(const std::string& moduleName,
+									  XML* defxml,
+									  TiXmlNode* defNode,
 									  ScriptDefModule* pScriptModule)
 {
 	// 加载属性描述
 	if(!loadDefPropertys(moduleName, defxml, defxml->enterNode(defNode, "Properties"), pScriptModule))
 		return false;
-	
+
 	// 加载cell方法描述
 	if(!loadDefCellMethods(moduleName, defxml, defxml->enterNode(defNode, "CellMethods"), pScriptModule))
 	{
@@ -977,7 +1953,7 @@ bool EntityDef::validDefPropertyName(const std::string& name)
 
 		if(name == limited)
 			return false;
-		
+
 		++i;
 	};
 
@@ -1015,7 +1991,7 @@ bool EntityDef::validDefPropertyName(const std::string& name)
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::calcDefPropertyUType(const std::string& moduleName, 
+bool EntityDef::calcDefPropertyUType(const std::string& moduleName,
 	const std::string& name, int iUtype, ScriptDefModule* pScriptModule, ENTITY_PROPERTY_UID& outUtype)
 {
 	ENTITY_PROPERTY_UID futype = 0;
@@ -1094,9 +2070,9 @@ bool EntityDef::calcDefPropertyUType(const std::string& moduleName,
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::loadDefPropertys(const std::string& moduleName, 
-								 XML* xml, 
-								 TiXmlNode* defPropertyNode, 
+bool EntityDef::loadDefPropertys(const std::string& moduleName,
+								 XML* xml,
+								 TiXmlNode* defPropertyNode,
 								 ScriptDefModule* pScriptModule)
 {
 	if(defPropertyNode)
@@ -1126,7 +2102,7 @@ bool EntityDef::loadDefPropertys(const std::string& moduleName,
 			name = xml->getKey(defPropertyNode);
 			if(!validDefPropertyName(name))
 			{
-				ERROR_MSG(fmt::format("EntityDef::loadDefPropertys: '{}' is limited, in module({})!\n", 
+				ERROR_MSG(fmt::format("EntityDef::loadDefPropertys: '{}' is limited, in module({})!\n",
 					name, moduleName));
 
 				return false;
@@ -1141,7 +2117,7 @@ bool EntityDef::loadDefPropertys(const std::string& moduleName,
 				ENTITYFLAGMAP::iterator iter = g_entityFlagMapping.find(strFlags.c_str());
 				if(iter == g_entityFlagMapping.end())
 				{
-					ERROR_MSG(fmt::format("EntityDef::loadDefPropertys: not fount flags[{}], is {}.{}!\n", 
+					ERROR_MSG(fmt::format("EntityDef::loadDefPropertys: not fount flags[{}], is {}.{}!\n",
 						strFlags, moduleName, name));
 
 					return false;
@@ -1181,7 +2157,7 @@ bool EntityDef::loadDefPropertys(const std::string& moduleName,
 			{
 				strisPersistent = xml->getValStr(persistentNode);
 
-				std::transform(strisPersistent.begin(), strisPersistent.end(), 
+				std::transform(strisPersistent.begin(), strisPersistent.end(),
 					strisPersistent.begin(), tolower);
 
 				if(strisPersistent == "true")
@@ -1224,7 +2200,7 @@ bool EntityDef::loadDefPropertys(const std::string& moduleName,
 			{
 				indexType = xml->getValStr(indexTypeNode);
 
-				std::transform(indexType.begin(), indexType.end(), 
+				std::transform(indexType.begin(), indexType.end(),
 					indexType.begin(), toupper);
 			}
 
@@ -1232,7 +2208,7 @@ bool EntityDef::loadDefPropertys(const std::string& moduleName,
 			if(identifierNode)
 			{
 				strIdentifierNode = xml->getValStr(identifierNode);
-				std::transform(strIdentifierNode.begin(), strIdentifierNode.end(), 
+				std::transform(strIdentifierNode.begin(), strIdentifierNode.end(),
 					strIdentifierNode.begin(), tolower);
 
 				if(strIdentifierNode == "true")
@@ -1245,15 +2221,15 @@ bool EntityDef::loadDefPropertys(const std::string& moduleName,
 				databaseLength = xml->getValInt(databaseLengthNode);
 			}
 
-			TiXmlNode* defaultValNode = 
+			TiXmlNode* defaultValNode =
 				xml->enterNode(defPropertyNode->FirstChild(), "Default");
 
 			if(defaultValNode)
 			{
 				defaultStr = xml->getValStr(defaultValNode);
 			}
-			
-			TiXmlNode* detailLevelNode = 
+
+			TiXmlNode* detailLevelNode =
 				xml->enterNode(defPropertyNode->FirstChild(), "DetailLevel");
 
 			if(detailLevelNode)
@@ -1278,18 +2254,18 @@ bool EntityDef::loadDefPropertys(const std::string& moduleName,
 				//descriptionStr = descriptionNode->ToText()->Value();
 
 			}
-			
-			TiXmlNode* utypeValNode = 
+
+			TiXmlNode* utypeValNode =
 				xml->enterNode(defPropertyNode->FirstChild(), "Utype");
 
 			if (!calcDefPropertyUType(moduleName, name, (utypeValNode ? xml->getValInt(utypeValNode) : -1), pScriptModule, futype))
 				return false;
 
 			// 产生一个属性描述实例
-			PropertyDescription* propertyDescription = PropertyDescription::createDescription(futype, strType, 
-															name, flags, isPersistent, 
+			PropertyDescription* propertyDescription = PropertyDescription::createDescription(futype, strType,
+															name, flags, isPersistent,
 															dataType, isIdentifier, indexType,
-															databaseLength, defaultStr, 
+															databaseLength, defaultStr,
 															detailLevel, descriptionStr);
 
 			bool ret = true;
@@ -1309,9 +2285,9 @@ bool EntityDef::loadDefPropertys(const std::string& moduleName,
 
 			if(!ret)
 			{
-				ERROR_MSG(fmt::format("EntityDef::addPropertyDescription({}): {}.\n", 
+				ERROR_MSG(fmt::format("EntityDef::addPropertyDescription({}): {}.\n",
 					moduleName.c_str(), xml->getTxdoc()->Value()));
-				
+
 				return false;
 			}
 		}
@@ -1322,9 +2298,9 @@ bool EntityDef::loadDefPropertys(const std::string& moduleName,
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::loadDefCellMethods(const std::string& moduleName, 
-								   XML* xml, 
-								   TiXmlNode* defMethodNode, 
+bool EntityDef::loadDefCellMethods(const std::string& moduleName,
+								   XML* xml,
+								   TiXmlNode* defMethodNode,
 								   ScriptDefModule* pScriptModule)
 {
 	if(defMethodNode)
@@ -1334,7 +2310,7 @@ bool EntityDef::loadDefCellMethods(const std::string& moduleName,
 			std::string name = xml->getKey(defMethodNode);
 			MethodDescription* methodDescription = new MethodDescription(0, CELLAPP_TYPE, name);
 			TiXmlNode* argNode = defMethodNode->FirstChild();
-			
+
 			// 可能没有参数
 			if(argNode)
 			{
@@ -1365,7 +2341,7 @@ bool EntityDef::loadDefCellMethods(const std::string& moduleName,
 
 						if(dataType == NULL)
 						{
-							ERROR_MSG(fmt::format("EntityDef::loadDefCellMethods: dataType[{}] not found, in {}!\n", 
+							ERROR_MSG(fmt::format("EntityDef::loadDefCellMethods: dataType[{}] not found, in {}!\n",
 								strType.c_str(), name.c_str()));
 
 							return false;
@@ -1379,7 +2355,7 @@ bool EntityDef::loadDefCellMethods(const std::string& moduleName,
 
 						int iUtype = xml->getValInt(typeNode);
 						ENTITY_METHOD_UID muid = iUtype;
-						
+
 						if (iUtype != int(muid))
 						{
 							ERROR_MSG(fmt::format("EntityDef::loadDefCellMethods: 'Utype' has overflowed({} > 65535), is {}.{}!\n",
@@ -1392,7 +2368,7 @@ bool EntityDef::loadDefCellMethods(const std::string& moduleName,
 						g_methodCusUtypes.push_back(muid);
 					}
 				}
-				XML_FOR_END(argNode);		
+				XML_FOR_END(argNode);
 			}
 
 			// 如果配置中没有设置过utype, 则产生
@@ -1402,7 +2378,7 @@ bool EntityDef::loadDefCellMethods(const std::string& moduleName,
 				while(true)
 				{
 					muid = g_methodUtypeAuto++;
-					std::vector<ENTITY_METHOD_UID>::iterator iterutype = 
+					std::vector<ENTITY_METHOD_UID>::iterator iterutype =
 						std::find(g_methodCusUtypes.begin(), g_methodCusUtypes.end(), muid);
 
 					if(iterutype == g_methodCusUtypes.end())
@@ -1467,7 +2443,7 @@ bool EntityDef::loadDefCellMethods(const std::string& moduleName,
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::loadDefBaseMethods(const std::string& moduleName, XML* xml, 
+bool EntityDef::loadDefBaseMethods(const std::string& moduleName, XML* xml,
 								   TiXmlNode* defMethodNode, ScriptDefModule* pScriptModule)
 {
 	if(defMethodNode)
@@ -1535,7 +2511,7 @@ bool EntityDef::loadDefBaseMethods(const std::string& moduleName, XML* xml,
 						g_methodCusUtypes.push_back(muid);
 					}
 				}
-				XML_FOR_END(argNode);		
+				XML_FOR_END(argNode);
 			}
 
 			// 如果配置中没有设置过utype, 则产生
@@ -1545,7 +2521,7 @@ bool EntityDef::loadDefBaseMethods(const std::string& moduleName, XML* xml,
 				while(true)
 				{
 					muid = g_methodUtypeAuto++;
-					std::vector<ENTITY_METHOD_UID>::iterator iterutype = 
+					std::vector<ENTITY_METHOD_UID>::iterator iterutype =
 						std::find(g_methodCusUtypes.begin(), g_methodCusUtypes.end(), muid);
 
 					if(iterutype == g_methodCusUtypes.end())
@@ -1610,7 +2586,7 @@ bool EntityDef::loadDefBaseMethods(const std::string& moduleName, XML* xml,
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::loadDefClientMethods(const std::string& moduleName, XML* xml, 
+bool EntityDef::loadDefClientMethods(const std::string& moduleName, XML* xml,
 									 TiXmlNode* defMethodNode, ScriptDefModule* pScriptModule)
 {
 	if(defMethodNode)
@@ -1674,7 +2650,7 @@ bool EntityDef::loadDefClientMethods(const std::string& moduleName, XML* xml,
 						g_methodCusUtypes.push_back(muid);
 					}
 				}
-				XML_FOR_END(argNode);		
+				XML_FOR_END(argNode);
 			}
 
 			// 如果配置中没有设置过utype, 则产生
@@ -1684,7 +2660,7 @@ bool EntityDef::loadDefClientMethods(const std::string& moduleName, XML* xml,
 				while(true)
 				{
 					muid = g_methodUtypeAuto++;
-					std::vector<ENTITY_METHOD_UID>::iterator iterutype = 
+					std::vector<ENTITY_METHOD_UID>::iterator iterutype =
 						std::find(g_methodCusUtypes.begin(), g_methodCusUtypes.end(), muid);
 
 					if(iterutype == g_methodCusUtypes.end())
@@ -1793,11 +2769,11 @@ bool EntityDef::isLoadScriptModule(ScriptDefModule* pScriptModule)
 }
 
 //-------------------------------------------------------------------------------------
-bool EntityDef::checkDefMethod(ScriptDefModule* pScriptModule, 
+bool EntityDef::checkDefMethod(ScriptDefModule* pScriptModule,
 							   PyObject* moduleObj, const std::string& moduleName)
 {
 	ScriptDefModule::METHODDESCRIPTION_MAP* methodDescrsPtr = NULL;
-	
+
 	PyObject* pyInspectModule =
 		PyImport_ImportModule(const_cast<char*>("inspect"));
 
@@ -1915,7 +2891,7 @@ bool EntityDef::checkDefMethod(ScriptDefModule* pScriptModule,
 
 			PyObject* pyClassStr = PyObject_Str(moduleObj);
 			const char* classStr = PyUnicode_AsUTF8AndSize(pyClassStr, NULL);
-			
+
 			ERROR_MSG(fmt::format("EntityDef::checkDefMethod: {} does not have method[{}], defined in {}.def!\n",
 				classStr, iter->first.c_str(), moduleName));
 
@@ -1930,7 +2906,7 @@ bool EntityDef::checkDefMethod(ScriptDefModule* pScriptModule,
 }
 
 //-------------------------------------------------------------------------------------
-void EntityDef::setScriptModuleHasComponentEntity(ScriptDefModule* pScriptModule, 
+void EntityDef::setScriptModuleHasComponentEntity(ScriptDefModule* pScriptModule,
 												  bool has)
 {
 	switch(__loadComponentType)
@@ -1958,21 +2934,45 @@ PyObject* EntityDef::loadScriptModule(std::string moduleName)
 		PyImport_ImportModule(const_cast<char*>(moduleName.c_str()));
 
 	if (g_isReload && pyModule)
-		pyModule = PyImport_ReloadModule(pyModule);
+	{
+		// Entity/Component 主模块也走文件版本戳过滤。
+		// 文件未变化时只返回当前 sys.modules 中的模块对象，不再执行 PyImport_ReloadModule。
+		std::string filePath = getPyModuleFilePath(pyModule);
+		uint64 currStamp = 0;
+		bool firstTrack = false;
+		bool changed = filePath.empty() || isTrackedScriptFileChanged(moduleName, filePath, currStamp, firstTrack);
+		rememberReloadFile(changed, moduleName, filePath);
+
+		if (changed)
+		{
+			// 只有脚本文件确实变化才 reload 主模块。reload 后 EntityApp 会把在线 Entity/Component
+			// 的 __class__ 指向新类；未变化模块则继续使用旧类，减少无意义更新和日志噪声。
+			PyObject* pyReloadedModule = PyImport_ReloadModule(pyModule);
+			Py_DECREF(pyModule);
+			pyModule = pyReloadedModule;
+
+			if (pyModule)
+			{
+				++g_reloadStats.reloadedModules;
+				INFO_MSG(fmt::format("EntityDef::loadScriptModule: reload changed module={}, file={}, firstTrack={}, stamp={}.\n",
+					moduleName, filePath, firstTrack, currStamp));
+			}
+			else
+			{
+				g_reloadStats.ok = false;
+			}
+		}
+	}
 
 	// 检查该模块路径是否是KBE脚本目录下的，防止因用户取名与python模块名称冲突而误导入了系统模块
 	if (pyModule)
 	{
 		std::string userScriptsPath = Resmgr::getSingleton().getPyUserScriptsPath();
-		std::string pyModulePath = "";
+		std::string pyModulePath = getPyModuleFilePath(pyModule);
 
-		PyObject *fileobj = NULL;
-
-		fileobj = PyModule_GetFilenameObject(pyModule);
-		if (fileobj)
-			pyModulePath = PyUnicode_AsUTF8(fileobj);
-
-		Py_DECREF(fileobj);  
+		// 非 reload 的首次导入阶段建立文件版本戳基线；后续 reloadScript 才能只刷新变更文件。
+		if (!g_isReload)
+			rememberInitialScriptFileStamp(moduleName, pyModulePath);
 
 		strutil::kbe_replace(userScriptsPath, "/", "");
 		strutil::kbe_replace(userScriptsPath, "\\", "");
@@ -2129,7 +3129,7 @@ ERASE_PROPERTYS:
 
 					uint32 pflags = pComponentPropertyDescription->getFlags();
 
-  					if (g_componentType == BASEAPP_TYPE)
+					if (g_componentType == BASEAPP_TYPE)
 					{
 						pflags |= ENTITY_BASE_DATA_FLAGS;
 
@@ -2268,27 +3268,40 @@ bool EntityDef::loadAllEntityScriptModules(std::string entitiesPath,
 {
 	std::string entitiesFile = entitiesPath + "entities.xml";
 
-	// 允许纯脚本定义，则可能没有这个文件
-	if (access(entitiesFile.c_str(), 0) != 0)
-		return true;
-
 	if (!loadAllComponentScriptModules(entitiesPath, scriptBaseTypes))
 		return false;
-
-	SmartPointer<XML> xml(new XML());
-	if(!xml->openSection(entitiesFile.c_str()))
-		return false;
-
-	TiXmlNode* node = xml->getRootNode();
-	if(node == NULL)
-		return true;
 
 	// 所有需要加载脚本的组件类别名称
 	std::set<std::string> checkedComponentTypes;
 
-	XML_FOR_BEGIN(node)
+	std::vector<std::string> moduleNames;
+	const std::vector<PluginEntityDescriptor>& pluginEntities = PluginManager::instance().entities();
+	for (std::vector<PluginEntityDescriptor>::const_iterator iter = pluginEntities.begin(); iter != pluginEntities.end(); ++iter)
 	{
-		std::string moduleName = xml.get()->getKey(node);
+		// EntityDef 注册已经按插件前置完成，这里导入 Python Entity 脚本时保持相同顺序。
+		moduleNames.push_back(iter->name);
+	}
+
+	if (access(entitiesFile.c_str(), 0) == 0)
+	{
+		SmartPointer<XML> xml(new XML());
+		if(!xml->openSection(entitiesFile.c_str()))
+			return false;
+
+		TiXmlNode* node = xml->getRootNode();
+		if(node != NULL)
+		{
+			XML_FOR_BEGIN(node)
+			{
+				moduleNames.push_back(xml.get()->getKey(node));
+			}
+			XML_FOR_END(node);
+		}
+	}
+
+	for (std::vector<std::string>::iterator moduleIter = moduleNames.begin(); moduleIter != moduleNames.end(); ++moduleIter)
+	{
+		std::string moduleName = *moduleIter;
 		ScriptDefModule* pScriptModule = findScriptModule(moduleName.c_str());
 
 		PyObject* pyModule = loadScriptModule(moduleName);
@@ -2297,7 +3310,7 @@ bool EntityDef::loadAllEntityScriptModules(std::string entitiesPath,
 			// 是否加载这个模块 （取决于是否在def文件中定义了与当前组件相关的方法或者属性）
 			if(isLoadScriptModule(pScriptModule))
 			{
-				ERROR_MSG(fmt::format("EntityDef::initialize: Could not load EntityModule[{}]\n", 
+				ERROR_MSG(fmt::format("EntityDef::initialize: Could not load EntityModule[{}]\n",
 					moduleName.c_str()));
 
 				PyErr_Print();
@@ -2313,7 +3326,7 @@ bool EntityDef::loadAllEntityScriptModules(std::string entitiesPath,
 
 		setScriptModuleHasComponentEntity(pScriptModule, true);
 
-		PyObject* pyClass = 
+		PyObject* pyClass =
 			PyObject_GetAttrString(pyModule, const_cast<char *>(moduleName.c_str()));
 
 		if (pyClass == NULL)
@@ -2323,7 +3336,7 @@ bool EntityDef::loadAllEntityScriptModules(std::string entitiesPath,
 
 			return false;
 		}
-		else 
+		else
 		{
 			std::string typeNames = isSubClass(pyClass);
 
@@ -2343,7 +3356,7 @@ bool EntityDef::loadAllEntityScriptModules(std::string entitiesPath,
 
 			return false;
 		}
-		
+
 		if(!checkDefMethod(pScriptModule, pyClass, moduleName))
 		{
 			ERROR_MSG(fmt::format("EntityDef::initialize: EntityClass[{}] checkDefMethod is failed!\n",
@@ -2351,8 +3364,8 @@ bool EntityDef::loadAllEntityScriptModules(std::string entitiesPath,
 
 			return false;
 		}
-		
-		DEBUG_MSG(fmt::format("loaded entity-script:{}({}).\n", moduleName.c_str(), 
+
+		DEBUG_MSG(fmt::format("loaded entity-script:{}({}).\n", moduleName.c_str(),
 			pScriptModule->getUType()));
 
 		pScriptModule->setScriptType((PyTypeObject *)pyClass);
@@ -2384,7 +3397,6 @@ bool EntityDef::loadAllEntityScriptModules(std::string entitiesPath,
 			checkedComponentTypes.insert(componentScriptName);
 		}
 	}
-	XML_FOR_END(node);
 
 	return true;
 }
@@ -2409,7 +3421,7 @@ ScriptDefModule* EntityDef::findScriptModule(ENTITY_SCRIPT_UID utype, bool notFo
 //-------------------------------------------------------------------------------------
 ScriptDefModule* EntityDef::findScriptModule(const char* scriptName, bool notFoundOutErr)
 {
-	std::map<std::string, ENTITY_SCRIPT_UID>::iterator iter = 
+	std::map<std::string, ENTITY_SCRIPT_UID>::iterator iter =
 		__scriptTypeMappingUType.find(scriptName);
 
 	if(iter == __scriptTypeMappingUType.end())
@@ -2428,7 +3440,7 @@ ScriptDefModule* EntityDef::findScriptModule(const char* scriptName, bool notFou
 //-------------------------------------------------------------------------------------
 ScriptDefModule* EntityDef::findOldScriptModule(const char* scriptName, bool notFoundOutErr)
 {
-	std::map<std::string, ENTITY_SCRIPT_UID>::iterator iter = 
+	std::map<std::string, ENTITY_SCRIPT_UID>::iterator iter =
 		__oldScriptTypeMappingUType.find(scriptName);
 
 	if(iter == __oldScriptTypeMappingUType.end())

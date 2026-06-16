@@ -1000,6 +1000,8 @@ bool ClientSDKTypeScript::writeEngineMessagesModuleMessage(Network::ExposedMessa
     }
 
 	public override handleMessage(msgstream: MemoryStream) {
+		try
+		{
 )delimiter";
 
 
@@ -1085,6 +1087,10 @@ bool ClientSDKTypeScript::writeEngineMessagesModuleMessage(Network::ExposedMessa
 		initBody_ += fmt::format("\t\tMessages.baseappMessages[{}] = Messages.messages[\"{}\"];\n\n", messageInfos.id, messageInfos.name);
 	}
 
+	sourcefileBody_ += "\t\t}\n";
+	sourcefileBody_ += "\t\tcatch(e)\n\t\t{\n";
+	sourcefileBody_ += fmt::format("\t\t\tKBELog.ERROR_MSG(\"Message_%s::handleMessage: \" + e);\n", messageInfos.name);
+	sourcefileBody_ += "\t\t}\n";
 	sourcefileBody_ += "\t}\n";
 
 	sourcefileBody_ += "}\n\n";
@@ -1351,7 +1357,7 @@ bool ClientSDKTypeScript::writeEntityCallBegin(ScriptDefModule* pScriptDefModule
 	}
 
 
-	sourcefileBody_ += std::string("// defined in */scripts/entity_defs/") + pScriptDefModule->getName() + ".def\n";
+	sourcefileBody_ += std::string("// defined in ") + pScriptDefModule->getDefSourceFile() + "\n";
 	return true;
 }
 
@@ -2728,7 +2734,7 @@ import { Vector2, Vector3, Vector4 } from './KBEMath';
 	}
 
 
-	sourcefileBody_ += std::string("// defined in */scripts/entity_defs/") + pEntityScriptDefModule->getName() + ".def\n";
+	sourcefileBody_ += std::string("// defined in ") + pEntityScriptDefModule->getDefSourceFile() + "\n";
 
 	if (pEntityScriptDefModule->isComponentModule())
 	{

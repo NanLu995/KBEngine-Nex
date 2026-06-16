@@ -7,15 +7,79 @@
 #include "common/kbekey.h"
 #include "db_mongodb/db_interface_mongodb.h"
 #include "db_mysql/db_interface_mysql.h"
+#include "db_postgresql/db_interface_postgresql.h"
 #include "server/serverconfig.h"
 #include "thread/threadpool.h"
 
-namespace KBEngine { 
+#include <cctype>
+
+namespace KBEngine {
 KBE_SINGLETON_INIT(DBUtil);
 
 DBUtil g_DBUtil;
 
 DBUtil::DBThreadPoolMap DBUtil::pThreadPoolMaps_;
+
+static bool isCommandBoundary(char c)
+{
+	return !std::isalnum(static_cast<unsigned char>(c)) && c != '_';
+}
+
+static bool rawDatabaseCommandHitBlacklist(const std::string& command,
+	const std::vector<std::string>& blacklist, std::string& hitWord)
+{
+	if (command.empty() || blacklist.empty())
+		return false;
+
+	std::string lowerCommand = strutil::toLower(command);
+
+	for (std::vector<std::string>::const_iterator iter = blacklist.begin(); iter != blacklist.end(); ++iter)
+	{
+		const std::string& word = *iter;
+		if (word.empty())
+			continue;
+
+		std::string::size_type pos = 0;
+		while ((pos = lowerCommand.find(word, pos)) != std::string::npos)
+		{
+			bool leftOk = pos == 0 || isCommandBoundary(lowerCommand[pos - 1]);
+			std::string::size_type end = pos + word.size();
+			bool rightOk = end >= lowerCommand.size() || isCommandBoundary(lowerCommand[end]);
+
+			if (leftOk && rightOk)
+			{
+				hitWord = word;
+				return true;
+			}
+
+			++pos;
+		}
+	}
+
+	return false;
+}
+
+//-------------------------------------------------------------------------------------
+bool DBInterface::checkRawDatabaseCommandAllowed(const std::string& command, std::string& error) const
+{
+	if (!g_kbeSrvConfig.enableRawDatabaseCommandBlacklist())
+		return true;
+
+	const std::vector<std::string>& blacklist = g_kbeSrvConfig.rawDatabaseCommandBlacklist(dbType());
+	if (blacklist.empty())
+		return true;
+
+	std::string hitWord;
+
+	if (command.empty() || !rawDatabaseCommandHitBlacklist(command, blacklist, hitWord))
+		return true;
+
+	error = fmt::format("executeRawDatabaseCommand blocked by blacklist: dbInterface={}, dbType={}, hit={}",
+		name(), dbType(), hitWord);
+
+	WARNING_MSG(fmt::format("{}, command={}.\n", error, command));
+	return false;
+}
 
 //-------------------------------------------------------------------------------------
 DBUtil::DBUtil()
@@ -45,6 +109,7 @@ bool DBUtil::initThread(const std::string& dbinterfaceName)
 	DBInterfaceInfo* pDBInfo = g_kbeSrvConfig.dbInterface(dbinterfaceName);
 	if (strcmp(pDBInfo->db_type, "mysql") == 0)
 	{
+		// MySQL 客户端库需要每个数据库线程初始化线程上下文。
 		if (!mysql_thread_safe()) 
 		{
 			KBE_ASSERT(false);
@@ -53,6 +118,10 @@ bool DBUtil::initThread(const std::string& dbinterfaceName)
 		{
 			mysql_thread_init();
 		}
+	}
+	else if (strcmp(pDBInfo->db_type, "postgresql") == 0)
+	{
+		// libpq 本身可跨线程使用，PGconn 不共享；KBE 每个 DB 线程持有自己的连接。
 	}
 	
 	return true;
@@ -64,7 +133,12 @@ bool DBUtil::finiThread(const std::string& dbinterfaceName)
 	DBInterfaceInfo* pDBInfo = g_kbeSrvConfig.dbInterface(dbinterfaceName);
 	if (strcmp(pDBInfo->db_type, "mysql") == 0)
 	{
+		// 释放 MySQL 当前线程上下文。
 		mysql_thread_end();
+	}
+	else if (strcmp(pDBInfo->db_type, "postgresql") == 0)
+	{
+		// PostgreSQL 连接资源跟随 PGconn 生命周期释放。
 	}
 
 	return true;
@@ -151,6 +225,10 @@ DBInterface* DBUtil::createInterface(const std::string& name, bool showinfo)
 	{
 		dbinterface = new DBInterfaceMongodb(name.c_str());
 	}
+	else if (strcmp(pDBInfo->db_type, "postgresql") == 0)
+	{
+		dbinterface = new DBInterfacePostgresql(name.c_str(), pDBInfo->db_unicodeString_characterSet, pDBInfo->db_unicodeString_collation);
+	}
 
 	if(dbinterface == NULL)
 	{
@@ -222,6 +300,10 @@ bool DBUtil::initInterface(DBInterface* pdbi)
 	else if (strcmp(pDBInfo->db_type, "mongodb") == 0)
 	{
 		DBInterfaceMongodb::initInterface(pdbi);
+	}
+	else if (strcmp(pDBInfo->db_type, "postgresql") == 0)
+	{
+		DBInterfacePostgresql::initInterface(pdbi);
 	}
 	
 	thread::ThreadPool* pThreadPool = pThreadPoolMaps_[pdbi->name()];

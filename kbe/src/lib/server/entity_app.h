@@ -4,6 +4,7 @@
 #define KBE_ENTITY_APP_H
 
 // common include
+#include <sys/stat.h>
 #include "pyscript/py_gc.h"
 #include "pyscript/script.h"
 #include "pyscript/pyprofile.h"
@@ -14,16 +15,19 @@
 #include "pyscript/pyobject_pointer.h"
 #include "pyscript/pywatcher.h"
 #include "helper/debug_helper.h"
+#include "helper/debug_option.h"
 #include "helper/script_loglevel.h"
 #include "helper/profile.h"
-#include "server/kbemain.h"	
+#include "server/kbemain.h"
 #include "server/script_timers.h"
 #include "server/asyncio_helper.h"
 #include "server/idallocate.h"
+#include "server/python_app.h"
 #include "server/serverconfig.h"
 #include "server/globaldata_client.h"
 #include "server/globaldata_server.h"
-#include "server/callbackmgr.h"	
+#include "resmgr/plugins/plugin_manager.h"
+#include "server/callbackmgr.h"
 #include "entitydef/entitydef.h"
 #include "entitydef/entities.h"
 #include "entitydef/entity_call.h"
@@ -33,13 +37,105 @@
 #include "resmgr/resmgr.h"
 #include "helper/console_helper.h"
 #include "server/serverapp.h"
+#include <algorithm>
+#include <cctype>
+#include <cstring>
 
 #if KBE_PLATFORM == PLATFORM_WIN32
 #pragma warning (disable : 4996)
 #endif
 
-	
+
 namespace KBEngine{
+
+/**
+	EntityApp 热更在线实体后的统计信息。
+	entitiesReloaded 统计已经切换到新脚本类型的在线 Entity 数量；
+	onReloadCallbacks 统计成功调用脚本 onReload(fullReload) 的 Entity 数量。
+*/
+struct ReloadScriptEntityStats
+{
+	ReloadScriptEntityStats() :
+		entitiesReloaded(0),
+		onReloadCallbacks(0)
+	{
+	}
+
+	uint32 entitiesReloaded;
+	uint32 onReloadCallbacks;
+};
+
+namespace entityapp_plugins
+{
+
+static inline std::string normalizePath(std::string path)
+{
+	std::replace(path.begin(), path.end(), '\\', '/');
+	return path;
+}
+
+static inline bool pathExists(const std::string& path)
+{
+	return access(path.c_str(), 0) == 0;
+}
+
+static inline std::string componentFolder(COMPONENT_TYPE componentType)
+{
+	if (componentType == BASEAPP_TYPE)
+		return "base";
+	if (componentType == CELLAPP_TYPE)
+		return "cell";
+	if (componentType == DBMGR_TYPE)
+		return "db";
+	if (componentType == INTERFACES_TYPE)
+		return "interface";
+	if (componentType == LOGINAPP_TYPE)
+		return "login";
+	if (componentType == LOGGER_TYPE)
+		return "logger";
+	if (componentType == BOTS_TYPE)
+		return "bots";
+	if (componentType == CLIENT_TYPE)
+		return "client";
+	return "";
+}
+
+static inline std::string safeModuleName(std::string value)
+{
+	for (std::string::iterator iter = value.begin(); iter != value.end(); ++iter)
+	{
+		if (!isalnum((unsigned char)*iter))
+			*iter = '_';
+	}
+	return value;
+}
+
+static inline std::string entryPath(const PluginDescriptor& plugin, COMPONENT_TYPE componentType, const std::string& entry)
+{
+	if (entry.find('/') != std::string::npos || entry.find('\\') != std::string::npos)
+		return normalizePath(plugin.rootPath + "/" + entry);
+
+	return normalizePath(plugin.rootPath + "/" + componentFolder(componentType) + "/" + entry + ".py");
+}
+
+static inline void callEntry(PyObject* pyEntry, const std::string& eventName, const char* format, bool arg)
+{
+	if (PyObject_HasAttrString(pyEntry, eventName.c_str()) <= 0)
+		return;
+
+	PyObject* pyResult = NULL;
+	if (format && strlen(format) > 0)
+		pyResult = PyObject_CallMethod(pyEntry, const_cast<char*>(eventName.c_str()), const_cast<char*>(format), arg ? 1 : 0);
+	else
+		pyResult = PyObject_CallMethod(pyEntry, const_cast<char*>(eventName.c_str()), const_cast<char*>(""));
+
+	if (pyResult)
+		Py_DECREF(pyResult);
+	else
+		SCRIPT_ERROR_CHECK();
+}
+
+}
 
 template<class E>
 class EntityApp : public ServerApp
@@ -52,26 +148,26 @@ public:
 	};
 
 public:
-	EntityApp(Network::EventDispatcher& dispatcher, 
-		Network::NetworkInterface& ninterface, 
+	EntityApp(Network::EventDispatcher& dispatcher,
+		Network::NetworkInterface& ninterface,
 		COMPONENT_TYPE componentType,
 		COMPONENT_ID componentID);
 
 	~EntityApp();
-	
-	/** 
-		相关处理接口 
+
+	/**
+		相关处理接口
 	*/
 	virtual void handleTimeout(TimerHandle handle, void * arg);
 	virtual void handleGameTick();
 
 	/**
-		通过entityID寻找到对应的实例 
+		通过entityID寻找到对应的实例
 	*/
 	E* findEntity(ENTITY_ID entityID);
 
-	/** 
-		通过entityID销毁一个entity 
+	/**
+		通过entityID销毁一个entity
 	*/
 	virtual bool destroyEntity(ENTITY_ID entityID, bool callScript);
 
@@ -98,8 +194,12 @@ public:
 	virtual void onInstallPyModules() {};
 	virtual bool uninstallPyModules();
 	bool uninstallPyScript();
+	bool installPluginModules();
+	void uninstallPluginModules();
+	void dispatchPluginEvent(const std::string& eventName);
+	void dispatchPluginEvent(const std::string& eventName, bool arg);
 	bool installEntityDef();
-	
+
 	virtual bool initializeWatcher();
 
 	virtual void finalise();
@@ -107,16 +207,16 @@ public:
 	virtual bool initialize();
 
 	virtual void onSignalled(int sigNum);
-	
+
 	Entities<E>* pEntities() const{ return pEntities_; }
 	ArraySize entitiesSize() const { return (ArraySize)pEntities_->size(); }
 
-	PY_CALLBACKMGR& callbackMgr(){ return pyCallbackMgr_; }	
+	PY_CALLBACKMGR& callbackMgr(){ return pyCallbackMgr_; }
 
 	EntityIDClient& idClient(){ return idClient_; }
 
 	/**
-		创建一个entity 
+		创建一个entity
 	*/
 	E* createEntity(const char* entityType, PyObject* params,
 		bool isInitializeScript = true, ENTITY_ID eid = 0, bool initProperty = true);
@@ -135,8 +235,8 @@ public:
 		startGlobalOrder: 全局启动顺序 包括各种不同组件
 		startGroupOrder: 组内启动顺序， 比如在所有baseapp中第几个启动。
 	*/
-	void onDbmgrInitCompleted(Network::Channel* pChannel, 
-		GAME_TIME gametime, ENTITY_ID startID, ENTITY_ID endID, COMPONENT_ORDER startGlobalOrder, 
+	void onDbmgrInitCompleted(Network::Channel* pChannel,
+		GAME_TIME gametime, ENTITY_ID startID, ENTITY_ID endID, COMPONENT_ORDER startGlobalOrder,
 		COMPONENT_ORDER startGroupOrder, const std::string& digest);
 
 	/** 网络接口
@@ -150,7 +250,7 @@ public:
 	*/
 	void onExecScriptCommand(Network::Channel* pChannel, KBEngine::MemoryStream& s);
 
-	/** 
+	/**
 		console请求开始profile
 	*/
 	virtual void startProfile_(Network::Channel* pChannel, std::string profileName, int8 profileType, uint32 timelen);
@@ -159,11 +259,18 @@ public:
 		允许脚本assert底层
 	*/
 	static PyObject* __py_assert(PyObject* self, PyObject* args);
-	
+
 	/**
 		获取apps发布状态, 可在脚本中获取该值
 	*/
 	static PyObject* __py_getAppPublish(PyObject* self, PyObject* args);
+
+	/**
+		获取自定义配置参数。
+		EntityApp与PythonApp暴露同一个KBEngine.getCustomCfg接口，这里只做入口转发，
+		实际解析逻辑统一放在PythonApp中，避免baseapp/cellapp与其他PythonApp组件出现两套类型规则。
+	*/
+	static PyObject* __py_getCustomCfg(PyObject* self, PyObject* args);
 
 	/**
 		设置脚本输出类型前缀
@@ -181,6 +288,13 @@ public:
 	*/
 	virtual void reloadScript(bool fullReload);
 	virtual void onReloadScript(bool fullReload);
+
+	/**
+		刷新当前 EntityApp 内所有在线 Entity，并发出 onReload(fullReload) 回调。
+		该函数会先更新 Entity 本身的 Python __class__，再刷新 EntityCall/EntityComponent，
+		最后才调用脚本层 onReload，确保脚本收到回调时已经处于新类实现上。
+	*/
+	ReloadScriptEntityStats reloadScriptEntitiesAndNotify(bool fullReload);
 
 	/**
 		通过相对路径获取资源的全路径
@@ -203,7 +317,7 @@ public:
 	static PyObject* __py_listPathRes(PyObject* self, PyObject* args);
 
 	/**
-		匹配相对路径获得全路径 
+		匹配相对路径获得全路径
 	*/
 	static PyObject* __py_matchPath(PyObject* self, PyObject* args);
 
@@ -218,10 +332,18 @@ public:
 	uint64 checkTickPeriod();
 
 protected:
+	/**
+		调用单个 Entity 的 onReload(fullReload)。
+		fullReload=true 表示完整 reload，fullReload=false 表示逻辑 reload。
+		没有 onReload 方法会静默跳过，不要求所有 Entity 实现。
+	*/
+	bool callEntityOnReload(E* entity, bool fullReload);
+
 	KBEngine::script::Script								script_;
 	std::vector<PyTypeObject*>								scriptBaseTypes_;
 
 	PyObjectPtr												entryScript_;
+	std::vector<PyObject*>									pluginEntryScripts_;
 
 	EntityIDClient											idClient_;
 
@@ -243,8 +365,8 @@ protected:
 
 
 template<class E>
-EntityApp<E>::EntityApp(Network::EventDispatcher& dispatcher, 
-					 Network::NetworkInterface& ninterface, 
+EntityApp<E>::EntityApp(Network::EventDispatcher& dispatcher,
+					 Network::NetworkInterface& ninterface,
 					 COMPONENT_TYPE componentType,
 					 COMPONENT_ID componentID):
 ServerApp(dispatcher, ninterface, componentType, componentID),
@@ -263,12 +385,12 @@ load_(0.f)
 	idClient_.pApp(this);
 
 	// 初始化EntityDef模块获取entity实体函数地址
-	EntityDef::setGetEntityFunc(std::tr1::bind(&EntityApp<E>::tryGetEntity, this,
-		std::tr1::placeholders::_1, std::tr1::placeholders::_2));
+	EntityDef::setGetEntityFunc(std::bind(&EntityApp<E>::tryGetEntity, this,
+		std::placeholders::_1, std::placeholders::_2));
 
 	// 初始化entityCall模块获取channel函数地址
-	EntityCallAbstract::setFindChannelFunc(std::tr1::bind(&EntityApp<E>::findChannelByEntityCall, this,
-		std::tr1::placeholders::_1));
+	EntityCallAbstract::setFindChannelFunc(std::bind(&EntityApp<E>::findChannelByEntityCall, this,
+		std::placeholders::_1));
 }
 
 template<class E>
@@ -284,7 +406,7 @@ bool EntityApp<E>::inInitialize()
 
 	if(!installPyModules())
 		return false;
-	
+
 	return installEntityDef();
 }
 
@@ -315,6 +437,9 @@ bool EntityApp<E>::initializeWatcher()
 template<class E>
 void EntityApp<E>::finalise(void)
 {
+	dispatchPluginEvent("onFini");
+	uninstallPluginModules();
+
 	// 先关闭asyncio，取消未完成协程，避免实体和组件卸载时仍被Task持有。
 	AsyncioHelper::shutdown();
 
@@ -322,13 +447,13 @@ void EntityApp<E>::finalise(void)
 	gameTimer_.cancel();
 
 	WATCH_FINALIZE;
-	
+
 	pyCallbackMgr_.finalise();
 	ScriptTimers::finalise(*this);
 
 	if(pEntities_)
 		pEntities_->finalise();
-	
+
 	uninstallPyScript();
 
 	ServerApp::finalise();
@@ -339,7 +464,7 @@ bool EntityApp<E>::installEntityDef()
 {
 	EntityDef::entityAliasID(ServerConfig::getSingleton().getCellApp().aliasEntityID);
 	EntityDef::entitydefAliasID(ServerConfig::getSingleton().getCellApp().entitydefAliasID);
-	
+
 	if(!EntityDef::installScript(this->getScript().getModule()))
 		return false;
 
@@ -353,7 +478,7 @@ bool EntityApp<E>::installEntityDef()
 	ScriptDefModule* pModule = EntityDef::findScriptModule(dbcfg.dbAccountEntityScriptType);
 	if(pModule == NULL)
 	{
-		ERROR_MSG(fmt::format("EntityApp::installEntityDef(): not found account script[{}], defined(kbengine[_defs].xml->dbmgr->account_system->accountEntityScriptType and entities.xml)!\n", 
+		ERROR_MSG(fmt::format("EntityApp::installEntityDef(): not found account script[{}], defined(kbengine[_defs].xml->dbmgr->account_system->accountEntityScriptType and entities.xml)!\n",
 			dbcfg.dbAccountEntityScriptType));
 
 		return false;
@@ -364,14 +489,14 @@ bool EntityApp<E>::installEntityDef()
 
 template<class E>
 int EntityApp<E>::registerPyObjectToScript(const char* attrName, PyObject* pyObj)
-{ 
-	return script_.registerToModule(attrName, pyObj); 
+{
+	return script_.registerToModule(attrName, pyObj);
 }
 
 template<class E>
 int EntityApp<E>::unregisterPyObjectToScript(const char* attrName)
-{ 
-	return script_.unregisterToModule(attrName); 
+{
+	return script_.unregisterToModule(attrName);
 }
 
 template<class E>
@@ -425,17 +550,20 @@ bool EntityApp<E>::installPyModules()
 	// 添加globalData, globalBases支持
 	pGlobalData_ = new GlobalDataClient(DBMGR_TYPE, GlobalDataServer::GLOBAL_DATA);
 	registerPyObjectToScript("globalData", pGlobalData_);
-	
+
 	// 注册创建entity的方法到py
 	// 允许assert底层，用于调试脚本某个时机时底层状态
 	APPEND_SCRIPT_MODULE_METHOD(getScript().getModule(),	kbassert,			__py_assert,							METH_VARARGS,	0);
-	
+
 	// 向脚本注册app发布状态
 	APPEND_SCRIPT_MODULE_METHOD(getScript().getModule(),	publish,			__py_getAppPublish,						METH_VARARGS,	0);
 
+	// 获取自定义配置参数，只读访问server配置中的<customCfg>节点。
+	APPEND_SCRIPT_MODULE_METHOD(getScript().getModule(),	getCustomCfg,		__py_getCustomCfg,						METH_VARARGS,	0);
+
 	// 注册设置脚本输出类型
 	APPEND_SCRIPT_MODULE_METHOD(getScript().getModule(),	scriptLogType,		__py_setScriptLogType,					METH_VARARGS,	0);
-	
+
 	// 获得资源全路径
 	APPEND_SCRIPT_MODULE_METHOD(getScript().getModule(),	getResFullPath,		__py_getResFullPath,					METH_VARARGS,	0);
 
@@ -497,7 +625,7 @@ bool EntityApp<E>::installPyModules()
 			ERROR_MSG( fmt::format("EntityApp::installPyModules: Unable to set KBEngine.{}.\n", SERVER_ERR_STR[i]));
 		}
 	}
-	
+
 	// 安装入口模块
 	std::string entryScriptFileName = "";
 	if (componentType() == BASEAPP_TYPE)
@@ -518,8 +646,8 @@ bool EntityApp<E>::installPyModules()
 
 		if (PyErr_Occurred())
 		{
-			INFO_MSG(fmt::format("EntityApp::installPyModules: importing scripts/{}{}.py...\n", 
-				(componentType() == BASEAPP_TYPE ? "base/" : "cell/"), 
+			INFO_MSG(fmt::format("EntityApp::installPyModules: importing scripts/{}{}.py...\n",
+				(componentType() == BASEAPP_TYPE ? "base/" : "cell/"),
 				entryScriptFileName));
 
 			PyErr_PrintEx(0);
@@ -533,8 +661,116 @@ bool EntityApp<E>::installPyModules()
 		}
 	}
 
+	if (!installPluginModules())
+		return false;
+
 	onInstallPyModules();
 	return true;
+}
+
+template<class E>
+bool EntityApp<E>::installPluginModules()
+{
+	// EntityApp 覆盖 baseapp/cellapp。
+	// 这里沿用组件自身的安装流程：主 entry 导入完成后，再导入当前组件声明的插件 entry。
+	if (!pluginEntryScripts_.empty())
+		return true;
+
+	PyObject* importlibUtil = NULL;
+	const std::vector<PluginDescriptor>& plugins = PluginManager::instance().plugins();
+	for (std::vector<PluginDescriptor>::const_iterator iter = plugins.begin(); iter != plugins.end(); ++iter)
+	{
+		std::map<COMPONENT_TYPE, PluginComponentDescriptor>::const_iterator componentIter = iter->components.find(componentType());
+		if (componentIter == iter->components.end() || componentIter->second.entry.empty())
+			continue;
+
+		std::string entryPath = entityapp_plugins::entryPath(*iter, componentType(), componentIter->second.entry);
+		if (!entityapp_plugins::pathExists(entryPath))
+			continue;
+
+		if (!importlibUtil)
+		{
+			importlibUtil = PyImport_ImportModule("importlib.util");
+			if (!importlibUtil)
+			{
+				SCRIPT_ERROR_CHECK();
+				return false;
+			}
+		}
+
+		std::string moduleName = "_kbe_plugin_" + entityapp_plugins::safeModuleName(iter->name) + "_" +
+			entityapp_plugins::safeModuleName(COMPONENT_NAME_EX(componentType())) + "_" + entityapp_plugins::safeModuleName(componentIter->second.entry);
+
+		PyObject* spec = PyObject_CallMethod(importlibUtil,
+			const_cast<char*>("spec_from_file_location"),
+			const_cast<char*>("ss"),
+			moduleName.c_str(),
+			entryPath.c_str());
+
+		if (!spec)
+		{
+			SCRIPT_ERROR_CHECK();
+			Py_XDECREF(importlibUtil);
+			return false;
+		}
+
+		PyObject* pyModule = PyObject_CallMethod(importlibUtil,
+			const_cast<char*>("module_from_spec"),
+			const_cast<char*>("O"),
+			spec);
+
+		if (!pyModule)
+		{
+			SCRIPT_ERROR_CHECK();
+			Py_DECREF(spec);
+			Py_XDECREF(importlibUtil);
+			return false;
+		}
+
+		PyObject* loader = PyObject_GetAttrString(spec, "loader");
+		PyObject* pyRet = loader ? PyObject_CallMethod(loader, const_cast<char*>("exec_module"), const_cast<char*>("O"), pyModule) : NULL;
+		Py_XDECREF(loader);
+		Py_DECREF(spec);
+
+		if (!pyRet)
+		{
+			ERROR_MSG(fmt::format("EntityApp::installPluginModules: could not import [{}] for plugin [{}]\n",
+				entryPath, iter->name));
+			SCRIPT_ERROR_CHECK();
+			Py_DECREF(pyModule);
+			Py_XDECREF(importlibUtil);
+			return false;
+		}
+
+		Py_DECREF(pyRet);
+		pluginEntryScripts_.push_back(pyModule);
+	}
+
+	Py_XDECREF(importlibUtil);
+	return true;
+}
+
+template<class E>
+void EntityApp<E>::dispatchPluginEvent(const std::string& eventName)
+{
+	for (std::vector<PyObject*>::iterator iter = pluginEntryScripts_.begin(); iter != pluginEntryScripts_.end(); ++iter)
+		entityapp_plugins::callEntry(*iter, eventName, "", false);
+}
+
+template<class E>
+void EntityApp<E>::dispatchPluginEvent(const std::string& eventName, bool arg)
+{
+	for (std::vector<PyObject*>::iterator iter = pluginEntryScripts_.begin(); iter != pluginEntryScripts_.end(); ++iter)
+		entityapp_plugins::callEntry(*iter, eventName, "i", arg);
+}
+
+template<class E>
+void EntityApp<E>::uninstallPluginModules()
+{
+	for (std::vector<PyObject*>::iterator iter = pluginEntryScripts_.begin(); iter != pluginEntryScripts_.end(); ++iter)
+		Py_XDECREF(*iter);
+
+	pluginEntryScripts_.clear();
 }
 
 template<class E>
@@ -543,7 +779,7 @@ bool EntityApp<E>::uninstallPyModules()
 	// script::PyGC::set_debug(script::PyGC::DEBUG_STATS|script::PyGC::DEBUG_LEAK);
 	// script::PyGC::collect();
 	unregisterPyObjectToScript("globalData");
-	S_RELEASE(pGlobalData_); 
+	S_RELEASE(pGlobalData_);
 
 	S_RELEASE(pEntities_);
 	unregisterPyObjectToScript("entities");
@@ -568,23 +804,23 @@ E* EntityApp<E>::createEntity(const char* entityType, PyObject* params,
 		PyErr_PrintEx(0);
 		return NULL;
 	}
-	
+
 	ScriptDefModule* sm = EntityDef::findScriptModule(entityType);
 	if(sm == NULL)
 	{
-		PyErr_Format(PyExc_TypeError, "EntityApp::createEntity: entityType [%s] not found! Please register in entities.xml and implement a %s.def and %s.py\n", 
+		PyErr_Format(PyExc_TypeError, "EntityApp::createEntity: entityType [%s] not found! Please register in entities.xml and implement a %s.def and %s.py\n",
 			entityType, entityType, entityType);
-		
+
 		PyErr_PrintEx(0);
 		return NULL;
 	}
 	else if(componentType_ == CELLAPP_TYPE ? !sm->hasCell() : !sm->hasBase())
 	{
-		PyErr_Format(PyExc_TypeError, "EntityApp::createEntity: cannot create %s(%s=false)! Please check the setting of the entities.xml and the implementation of %s.py\n", 
-			entityType, 
-			(componentType_ == CELLAPP_TYPE ? "hasCell()" : "hasBase()"), 
+		PyErr_Format(PyExc_TypeError, "EntityApp::createEntity: cannot create %s(%s=false)! Please check the setting of the entities.xml and the implementation of %s.py\n",
+			entityType,
+			(componentType_ == CELLAPP_TYPE ? "hasCell()" : "hasBase()"),
 			entityType);
-		
+
 		PyErr_PrintEx(0);
 		return NULL;
 	}
@@ -595,7 +831,7 @@ E* EntityApp<E>::createEntity(const char* entityType, PyObject* params,
 	ENTITY_ID id = eid;
 	if(id <= 0)
 		id = idClient_.alloc();
-	
+
 	EntityDef::context().currEntityID = id;
 
 	E* entity = onCreateEntity(obj, sm, id);
@@ -604,7 +840,7 @@ E* EntityApp<E>::createEntity(const char* entityType, PyObject* params,
 		entity->initProperty();
 
 	// 将entity加入entities
-	pEntities_->add(id, entity); 
+	pEntities_->add(id, entity);
 
 	// 初始化脚本
 	if(isInitializeScript)
@@ -635,7 +871,7 @@ template<class E>
 void EntityApp<E>::onSignalled(int sigNum)
 {
 	this->ServerApp::onSignalled(sigNum);
-	
+
 	switch (sigNum)
 	{
 	case SIGQUIT:
@@ -643,11 +879,11 @@ void EntityApp<E>::onSignalled(int sigNum)
 				"{}Mgr killing this {} because it has been "
 					"unresponsive for too long. Look at the callstack from "
 					"the core dump to find the likely cause.\n",
-				COMPONENT_NAME_EX(componentType_), 
+				COMPONENT_NAME_EX(componentType_),
 				COMPONENT_NAME_EX(componentType_)));
-		
+
 		break;
-	default: 
+	default:
 		break;
 	}
 }
@@ -657,7 +893,7 @@ PyObject* EntityApp<E>::tryGetEntity(COMPONENT_ID componentID, ENTITY_ID eid)
 {
 	if(componentID != componentID_)
 		return NULL;
-	
+
 	E* entity = pEntities_->find(eid);
 	if(entity == NULL){
 		ERROR_MSG(fmt::format("EntityApp::tryGetEntity: can't found entity:{}.\n", eid));
@@ -673,11 +909,11 @@ Network::Channel* EntityApp<E>::findChannelByEntityCall(EntityCallAbstract& enti
 	// 如果组件ID大于0则查找组件
 	if(entityCall.componentID() > 0)
 	{
-		Components::ComponentInfos* cinfos = 
+		Components::ComponentInfos* cinfos =
 			Components::getSingleton().findComponent(entityCall.componentID());
 
 		if(cinfos != NULL && cinfos->pChannel != NULL)
-			return cinfos->pChannel; 
+			return cinfos->pChannel;
 	}
 	else
 	{
@@ -711,7 +947,7 @@ void EntityApp<E>::handleGameTick()
 	++g_kbetime;
 	threadPool_.onMainThreadTick();
 	handleTimers();
-	
+
 	{
 		networkInterface().processChannels(KBEngine::Network::MessageHandlers::pMainMessageHandlers);
 	}
@@ -743,7 +979,7 @@ void EntityApp<E>::onReqAllocEntityID(Network::Channel* pChannel, ENTITY_ID star
 {
 	if(pChannel->isExternal())
 		return;
-	
+
 	// INFO_MSG("EntityApp::onReqAllocEntityID: entityID alloc(%d-%d).\n", startID, endID);
 	idClient_.onAddRange(startID, endID);
 }
@@ -762,6 +998,13 @@ PyObject* EntityApp<E>::__py_getAppPublish(PyObject* self, PyObject* args)
 }
 
 template<class E>
+PyObject* EntityApp<E>::__py_getCustomCfg(PyObject* self, PyObject* args)
+{
+	// EntityApp组件复用PythonApp的实现，保证所有服务端组件读取customCfg时的缺省值、类型转换和错误处理完全一致。
+	return PythonApp::__py_getCustomCfg(self, args);
+}
+
+template<class E>
 PyObject* EntityApp<E>::__py_getWatcher(PyObject* self, PyObject* args)
 {
 	Py_ssize_t argCount = PyTuple_Size(args);
@@ -771,7 +1014,7 @@ PyObject* EntityApp<E>::__py_getWatcher(PyObject* self, PyObject* args)
 		PyErr_PrintEx(0);
 		return 0;
 	}
-	
+
 	char* path;
 
 	if(!PyArg_ParseTuple(args, "s", &path))
@@ -910,7 +1153,7 @@ PyObject* EntityApp<E>::__py_getWatcherDir(PyObject* self, PyObject* args)
 		PyErr_PrintEx(0);
 		return 0;
 	}
-	
+
 	char* path;
 
 	if(!PyArg_ParseTuple(args, "s", &path))
@@ -1118,7 +1361,7 @@ PyObject* EntityApp<E>::__py_listPathRes(PyObject* self, PyObject* args)
 			PyErr_PrintEx(0);
 			return 0;
 		}
-		
+
 		if(PyUnicode_Check(path_argsobj))
 		{
 			wchar_t* fargs = NULL;
@@ -1141,7 +1384,7 @@ PyObject* EntityApp<E>::__py_listPathRes(PyObject* self, PyObject* args)
 						PyErr_PrintEx(0);
 						return 0;
 					}
-					
+
 					wchar_t* wtemp = NULL;
 					wtemp = PyUnicode_AsWideCharString(pyobj, NULL);
 					wExtendName += wtemp;
@@ -1221,7 +1464,7 @@ void EntityApp<E>::startProfile_(Network::Channel* pChannel, std::string profile
 {
 	if(pChannel->isExternal())
 		return;
-	
+
 	switch(profileType)
 	{
 	case 0:	// pyprofile
@@ -1235,14 +1478,14 @@ void EntityApp<E>::startProfile_(Network::Channel* pChannel, std::string profile
 }
 
 template<class E>
-void EntityApp<E>::onDbmgrInitCompleted(Network::Channel* pChannel, 
-						GAME_TIME gametime, ENTITY_ID startID, ENTITY_ID endID, 
-						COMPONENT_ORDER startGlobalOrder, COMPONENT_ORDER startGroupOrder, 
+void EntityApp<E>::onDbmgrInitCompleted(Network::Channel* pChannel,
+						GAME_TIME gametime, ENTITY_ID startID, ENTITY_ID endID,
+						COMPONENT_ORDER startGlobalOrder, COMPONENT_ORDER startGroupOrder,
 						const std::string& digest)
 {
 	if(pChannel->isExternal())
 		return;
-	
+
 	INFO_MSG(fmt::format("EntityApp::onDbmgrInitCompleted: entityID alloc({}-{}), startGlobalOrder={}, startGroupOrder={}, digest={}.\n",
 		startID, endID, startGlobalOrder, startGroupOrder, digest));
 
@@ -1270,10 +1513,10 @@ void EntityApp<E>::onBroadcastGlobalDataChanged(Network::Channel* pChannel, KBEn
 {
 	if(pChannel->isExternal())
 		return;
-	
+
 	std::string key, value;
 	bool isDelete;
-	
+
 	s >> isDelete;
 	s.readBlob(key);
 
@@ -1295,7 +1538,7 @@ void EntityApp<E>::onBroadcastGlobalDataChanged(Network::Channel* pChannel, KBEn
 		{
 			// 通知脚本
 			// SCOPED_PROFILE(SCRIPTCALL_PROFILE);
-			SCRIPT_OBJECT_CALL_ARGS1(getEntryScript().get(), const_cast<char*>("onGlobalDataDel"), 
+			SCRIPT_OBJECT_CALL_ARGS1(getEntryScript().get(), const_cast<char*>("onGlobalDataDel"),
 				const_cast<char*>("O"), pyKey, false);
 		}
 	}
@@ -1313,7 +1556,7 @@ void EntityApp<E>::onBroadcastGlobalDataChanged(Network::Channel* pChannel, KBEn
 		{
 			// 通知脚本
 			// SCOPED_PROFILE(SCRIPTCALL_PROFILE);
-			SCRIPT_OBJECT_CALL_ARGS2(getEntryScript().get(), const_cast<char*>("onGlobalData"), 
+			SCRIPT_OBJECT_CALL_ARGS2(getEntryScript().get(), const_cast<char*>("onGlobalData"),
 				const_cast<char*>("OO"), pyKey, pyValue, false);
 		}
 
@@ -1328,7 +1571,7 @@ void EntityApp<E>::onExecScriptCommand(Network::Channel* pChannel, KBEngine::Mem
 {
 	if(pChannel->isExternal())
 		return;
-	
+
 	std::string cmd;
 	s.readBlob(cmd);
 
@@ -1339,7 +1582,7 @@ void EntityApp<E>::onExecScriptCommand(Network::Channel* pChannel, KBEngine::Mem
 		return;
 	}
 
-	DEBUG_MSG(fmt::format("EntityApp::onExecScriptCommand: size({}), command={}.\n", 
+	DEBUG_MSG(fmt::format("EntityApp::onExecScriptCommand: size({}), command={}.\n",
 		cmd.size(), cmd));
 
 	std::string retbuf = "";
@@ -1424,6 +1667,35 @@ void EntityApp<E>::updateLoad()
 		}
 	}
 
+	// 文件触发热更：在 assets 目录下 touch/修改 .hotreload 文件即可触发所有 app 的 reloadScript
+	// 仅在开发模式（publish=0）下生效；PyCharm 插件只需写入该文件即可
+	if (g_appPublish == 0)
+	{
+		static enum { UNINIT, ABSENT, PRESENT } s_state = UNINIT;
+		static uint64 s_stamp = 0;
+		std::string hotreloadFile = Resmgr::getSingleton().getPyUserScriptsPath() + ".hotreload";
+
+		struct stat st;
+		if (stat(hotreloadFile.c_str(), &st) == 0)
+		{
+			uint64 stamp = ((uint64)st.st_mtime << 32) ^ (uint64)st.st_size;
+
+			if ((s_state == ABSENT) || (s_state == PRESENT && stamp != s_stamp))
+			{
+				INFO_MSG(fmt::format("{}::updateLoad: .hotreload changed, triggering reloadScript.\n",
+					COMPONENT_NAME_EX(g_componentType)));
+				reloadScript(false);
+			}
+
+			s_stamp = stamp;
+			s_state = PRESENT;
+		}
+		else
+		{
+			s_state = ABSENT;
+		}
+	}
+
 	calcLoad((float)spareTime);
 	onUpdateLoad();
 }
@@ -1443,31 +1715,207 @@ void EntityApp<E>::calcLoad(float spareTime)
 template<class E>
 void EntityApp<E>::onReloadScript(bool fullReload)
 {
+	INFO_MSG(fmt::format("{}::onReloadScript: begin, fullReload={}.\n",
+		COMPONENT_NAME_EX(g_componentType), fullReload));
+
+	// EntityCall 持有脚本类型/方法描述相关缓存，Entity 脚本换类之后必须同步刷新，
+	// 否则跨进程调用可能仍按旧的 method/property 描述打包。
 	EntityCall::ENTITYCALLS::iterator iter = EntityCall::entityCalls.begin();
 	for(; iter != EntityCall::entityCalls.end(); ++iter)
 	{
 		(*iter)->reload();
 	}
 
+	INFO_MSG(fmt::format("{}::onReloadScript: entitycalls reloaded, count={}.\n",
+		COMPONENT_NAME_EX(g_componentType), EntityCall::entityCalls.size()));
+
+	// 全局组件列表中既包含挂在 Entity 上的组件，也可能包含反序列化/临时引用过的组件。
+	// 每个组件用 reloadGeneration_ 去重，所以即使 Entity::reload 过程中已经刷新过，
+	// 这里再次遍历也不会重复初始化同一代热更。
 	EntityComponent::ENTITY_COMPONENTS::iterator iter1 = EntityComponent::entity_components.begin();
 	for (; iter1 != EntityComponent::entity_components.end(); ++iter1)
 	{
-		(*iter1)->reload();
+		(*iter1)->reload(fullReload);
 	}
+
+	INFO_MSG(fmt::format("{}::onReloadScript: components reloaded, count={}.\n",
+		COMPONENT_NAME_EX(g_componentType), EntityComponent::reloadCount()));
+}
+
+template<class E>
+bool EntityApp<E>::callEntityOnReload(E* entity, bool fullReload)
+{
+	// 脚本层完全无侵入：没有 onReload 方法就静默跳过，不要求所有 Entity 实现该接口。
+	PyObject* pyFunc = PyObject_GetAttrString(static_cast<PyObject*>(entity), "onReload");
+	if (!pyFunc)
+	{
+		PyErr_Clear();
+		return false;
+	}
+
+	if (!PyCallable_Check(pyFunc))
+	{
+		// 属性存在但不可调用通常是脚本写错，例如 onReload = 1。
+		// 这里只告警，不中断整个热更流程。
+		WARNING_MSG(fmt::format("{}::callEntityOnReload: {} {}.onReload is not callable.\n",
+			COMPONENT_NAME_EX(g_componentType), entity->scriptName(), entity->id()));
+
+		Py_DECREF(pyFunc);
+		return false;
+	}
+
+	PyObject* pyResult = PyObject_CallFunction(pyFunc, const_cast<char*>("i"), fullReload ? 1 : 0);
+	Py_DECREF(pyFunc);
+
+	if (pyResult != NULL)
+	{
+		// 兼容同步函数和 coroutine：如果脚本返回 awaitable，由 AsyncioHelper 接管；
+		// 如果是普通返回值，submitCoroutine 内部会按现有逻辑处理。
+		AsyncioHelper::submitCoroutine(pyResult);
+		Py_DECREF(pyResult);
+	}
+	else
+	{
+		SCRIPT_ERROR_CHECK();
+	}
+
+	return true;
+}
+
+template<class E>
+ReloadScriptEntityStats EntityApp<E>::reloadScriptEntitiesAndNotify(bool fullReload)
+{
+	ReloadScriptEntityStats stats;
+
+	typename Entities<E>::ENTITYS_MAP& entities = pEntities_->getEntities();
+	INFO_MSG(fmt::format("{}::reloadScriptEntitiesAndNotify: begin, fullReload={}, entities={}.\n",
+		COMPONENT_NAME_EX(g_componentType), fullReload, entities.size()));
+
+	typename Entities<E>::ENTITYS_MAP::iterator eiter = entities.begin();
+	for (; eiter != entities.end(); ++eiter)
+	{
+		// Entity::reload 会把在线 Entity 的 __class__ 切到新脚本类型。
+		// 非 fullReload 时不会重置数据属性，只更新行为层；fullReload 才做属性差异补齐。
+		static_cast<E*>(eiter->second.get())->reload(fullReload);
+		++stats.entitiesReloaded;
+	}
+
+	INFO_MSG(fmt::format("{}::reloadScriptEntitiesAndNotify: entities reloaded, count={}.\n",
+		COMPONENT_NAME_EX(g_componentType), stats.entitiesReloaded));
+
+	EntityApp<E>::onReloadScript(fullReload);
+
+	{
+		// onReload 放在 Entity/Component/EntityCall 都刷新之后调用，
+		// 这样脚本回调内访问自身方法、组件方法、EntityCall 都会尽量拿到新实现。
+		// 生产环境也会触发，但 fullReload 在生产会被强制降级为 false。
+		INFO_MSG(fmt::format("{}::reloadScriptEntitiesAndNotify: begin onReload callbacks, fullReload={}, publish={}.\n",
+			COMPONENT_NAME_EX(g_componentType), fullReload, g_appPublish));
+
+		eiter = entities.begin();
+		for (; eiter != entities.end(); ++eiter)
+		{
+			if (callEntityOnReload(static_cast<E*>(eiter->second.get()), fullReload))
+				++stats.onReloadCallbacks;
+		}
+
+		INFO_MSG(fmt::format("{}::reloadScriptEntitiesAndNotify: onReload callbacks done, count={}.\n",
+			COMPONENT_NAME_EX(g_componentType), stats.onReloadCallbacks));
+	}
+
+	return stats;
 }
 
 template<class E>
 void EntityApp<E>::reloadScript(bool fullReload)
 {
-	EntityDef::reload(fullReload);
+	static bool isReloading = false;
+	if (isReloading)
+	{
+		// reload 过程中脚本的 onInit、Timer 或 telnet 命令如果再次触发 reload，
+		// 会和当前这轮 EntityDef/Entity/Timer 刷新交叉执行，容易产生半新半旧状态。
+		// 这里直接拒绝重入，要求上一轮完整结束后再发起下一次热更。
+		WARNING_MSG(fmt::format("{}::reloadScript: ignored reentrant reload request, fullReload={}.\n",
+			COMPONENT_NAME_EX(g_componentType), fullReload));
+		return;
+	}
+
+	isReloading = true;
+	struct ReloadScriptGuard
+	{
+		bool& value;
+		ReloadScriptGuard(bool& v) : value(v) {}
+		~ReloadScriptGuard() { value = false; }
+	} reloadScriptGuard(isReloading);
+
+	if (g_appPublish != 0 && fullReload)
+	{
+		// 生产环境只允许逻辑层热更。即使运维误传 True 或脚本不传参数走默认值，
+		// 这里也强制降级为 fullReload=false，避免线上触碰属性补齐、数据重建等高风险路径。
+		WARNING_MSG(fmt::format("{}::reloadScript: production mode forces fullReload=false, requested fullReload=true.\n",
+			COMPONENT_NAME_EX(g_componentType)));
+		fullReload = false;
+	}
+
+	INFO_MSG(fmt::format("{}::reloadScript: begin, fullReload={}.\n",
+		COMPONENT_NAME_EX(g_componentType), fullReload));
+
+	// 先重载 EntityDef 及脚本模块。EntityDef 内部会先刷新当前组件目录下已加载的依赖模块，
+	// 再加载 Entity/Component 主脚本，避免 interface/mixin 仍停留在旧实现。
+	ReloadScriptDefStats defStats = EntityDef::reload(fullReload);
+
+	INFO_MSG(fmt::format("{}::reloadScript: EntityDef::reload done, ok={}, changedFiles={}, skippedFiles={}, reloadedModules={}, duplicateModulePatches={}, staleAttrsKept={}.\n",
+		COMPONENT_NAME_EX(g_componentType), defStats.ok, defStats.changedFiles, defStats.skippedFiles,
+		defStats.reloadedModules, defStats.duplicateModulePatches, defStats.staleAttrsKept));
+
+	if (!defStats.ok)
+	{
+		// 脚本模块 reload 已经失败时不能继续刷新在线对象，否则会把 Entity/Timer 推到半新半旧状态。
+		ERROR_MSG(fmt::format("{}::reloadScript: aborted because EntityDef::reload failed.\n",
+			COMPONENT_NAME_EX(g_componentType)));
+		return;
+	}
+
+	if (defStats.changedFiles == 0)
+	{
+		// 没有任何脚本文件变化时，不刷新在线 Entity/Component/Timer，也不触发 onInit。
+		// 这样空 reload 只作为一次检查，不会给线上对象制造额外扰动。
+		INFO_MSG(fmt::format("{}::reloadScript: no changed script files, skip entity/component/timer/onInit refresh.\n",
+			COMPONENT_NAME_EX(g_componentType)));
+		return;
+	}
+
+	// 开启组件热更代次。组件可能从 Entity::reload 和全局组件遍历两条路径被访问，
+	// 代次标记用于保证同一轮 reload 中每个组件只刷新一次。
+	EntityComponent::beginReload();
+	INFO_MSG(fmt::format("{}::reloadScript: EntityComponent::beginReload done.\n",
+		COMPONENT_NAME_EX(g_componentType)));
+
+	// 派生类 Baseapp/Cellapp 会在这里刷新在线 Entity，并触发 onReload(fullReload)。
 	onReloadScript(fullReload);
+	INFO_MSG(fmt::format("{}::reloadScript: onReloadScript done.\n",
+		COMPONENT_NAME_EX(g_componentType)));
+
+	// Timer 不重新创建，只把保存的 Python 回调对象重新定位到新脚本实现。
+	ReloadScriptTimerStats timerStats = PythonApp::reloadScriptTimers();
+
+	INFO_MSG(fmt::format("{}::reloadScript: fullReload={}, componentsReloaded={}, timersRefreshed={}, timersKeptOld={}\n",
+		COMPONENT_NAME_EX(g_componentType), fullReload, EntityComponent::reloadCount(),
+		timerStats.refreshed, timerStats.keptOld));
+
+	for (std::vector<std::string>::const_iterator iter = timerStats.keptOldCallbacks.begin();
+		iter != timerStats.keptOldCallbacks.end(); ++iter)
+	{
+		WARNING_MSG(fmt::format("{}::reloadScript: timer kept old callback: {}\n",
+			COMPONENT_NAME_EX(g_componentType), (*iter)));
+	}
 
 	// SCOPED_PROFILE(SCRIPTCALL_PROFILE);
 
 	// 所有脚本都加载完毕
-	PyObject* pyResult = PyObject_CallMethod(getEntryScript().get(), 
-										const_cast<char*>("onInit"), 
-										const_cast<char*>("i"), 
+	PyObject* pyResult = PyObject_CallMethod(getEntryScript().get(),
+										const_cast<char*>("onInit"),
+										const_cast<char*>("i"),
 										1);
 
 	if(pyResult != NULL) {
@@ -1476,6 +1924,10 @@ void EntityApp<E>::reloadScript(bool fullReload)
 	}
 	else
 		SCRIPT_ERROR_CHECK();
+
+	uninstallPluginModules();
+	if (installPluginModules())
+		dispatchPluginEvent("onInit", true);
 }
 
 }

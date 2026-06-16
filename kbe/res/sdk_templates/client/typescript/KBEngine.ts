@@ -861,25 +861,29 @@ export class KBEngineApp {
             entity.className = entityType;
             entity.onGetBase();
 
-            this.entities[eid] = entity;
+            try
+            {
+                this.entities[eid] = entity;
 
+                let entityStream = this.bufferedCreateEntityMessage[eid];
+                if (entityStream !== undefined) {
+                    this.Client_onUpdatePropertys(entityStream);
+                    delete this.bufferedCreateEntityMessage[eid];
+                }
 
+                entity.__init__();
+                entity.attachComponents();
+                entity.inited = true;
 
-            let entityStream = this.bufferedCreateEntityMessage[eid];
-            if (entityStream !== undefined) {
-                this.Client_onUpdatePropertys(entityStream);
-                delete this.bufferedCreateEntityMessage[eid];
+                if (this.args.isOnInitCallPropertysSetMethods)
+                    entity.CallPropertysSetMethods();
             }
-
-
-            entity.__init__();
-            entity.attachComponents();
-            entity.inited = true;
-
-
-
-            if (this.args.isOnInitCallPropertysSetMethods)
-                entity.CallPropertysSetMethods();
+            catch(e)
+            {
+                KBELog.ERROR_MSG("KBEngineApp::Client_onCreatedProxies: init entity failed! eid(%d), entityType(%s), error=%s", eid, entityType, e);
+                delete this.entities[eid];
+                entity.Destroy();
+            }
         }
         else {
             let entityStream = this.bufferedCreateEntityMessage[eid];
@@ -937,7 +941,12 @@ export class KBEngineApp {
                 return;
             }
 
-            let entityType  = EntityDef.idmoduledefs[uentityType].name
+            let entityTypeIdMod = EntityDef.idmoduledefs[uentityType];
+            if (entityTypeIdMod === undefined) {
+                KBELog.ERROR_MSG("KBEngine::Client_onEntityEnterWorld: not found entityType for utype(" + uentityType + ")!");
+                return;
+            }
+            let entityType  = entityTypeIdMod.name
             let module: ScriptModule = EntityDef.moduledefs[entityType]
             if (module === undefined) {
                 KBELog.ERROR_MSG("KBEngine::Client_onEntityEnterWorld: not found module(" + entityType + ")!");
@@ -953,19 +962,28 @@ export class KBEngineApp {
 
             entity.onGetCell();
 
-            this.entities[eid] = entity;
+            try
+            {
+                this.entities[eid] = entity;
 
-            entity.isOnGround = isOnGround > 0;
+                entity.isOnGround = isOnGround > 0;
 
-            entity.__init__();
-            entity.inWorld = true;
-            entity.EnterWorld();
+                entity.__init__();
+                entity.inWorld = true;
+                entity.EnterWorld();
 
-            if (this.args.isOnInitCallPropertysSetMethods)
-                entity.CallPropertysSetMethods();
+                if (this.args.isOnInitCallPropertysSetMethods)
+                    entity.CallPropertysSetMethods();
 
-            this.Client_onUpdatePropertys(entityStream);
-            delete this.bufferedCreateEntityMessage[eid];
+                this.Client_onUpdatePropertys(entityStream);
+                delete this.bufferedCreateEntityMessage[eid];
+            }
+            catch(e)
+            {
+                KBELog.ERROR_MSG("KBEngine::Client_onEntityEnterWorld: init entity failed! eid(%d), entityType(%s), error=%s", eid, module.name, e);
+                delete this.entities[eid];
+                entity.Destroy();
+            }
         }
         else {
             if (!entity.inWorld) {
@@ -3929,6 +3947,8 @@ export class NetworkInterface
             if(!handler)
             {
                 KBELog.ERROR_MSG("NetworkInterface::onmessage:message(%d) has not found.", msgID);
+                // msgID已消费但无法确定body长度→ 跳出循环防止流位置错位
+                break;
             }
             else
             {
@@ -3945,7 +3965,14 @@ export class NetworkInterface
                 let wpos = stream.wpos;
                 let rpos = stream.rpos + msgLen;
                 stream.wpos = rpos;
-                handler.handleMessage(stream);
+                try
+                {
+                    handler.handleMessage(stream);
+                }
+                catch(e)
+                {
+                    KBELog.ERROR_MSG("NetworkInterface::onmessage: handleMessage exception! msg=" + handler.name + ", error=" + e);
+                }
                 stream.wpos = wpos;
                 stream.rpos = rpos;
             }

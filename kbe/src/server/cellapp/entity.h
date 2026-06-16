@@ -214,7 +214,7 @@ public:
 	/**
 		传送成功和失败相关回调
 	*/
-	void onTeleport();
+	bool onTeleport();
 	void onTeleportFailure();
 	void onTeleportSuccess(PyObject* nearbyEntity, SPACE_ID lastSpaceID);
 	void onReqTeleportOtherAck(Network::Channel* pChannel, ENTITY_ID nearbyMBRefID, 
@@ -658,6 +658,21 @@ protected:
 
 	// entity y轴最高移动速度
 	float													topSpeedY_;
+
+	// topSpeed检测：上次检测的游戏tick（用于同帧累积判断）
+	GAME_TIME												lastTopSpeedCheckTick_;
+
+	// topSpeed检测：当前tick内累计的移动量（用于防高频发包绕过）
+	Position3D												accumulatedMoveForTick_;
+
+	// topSpeed检测：滑动窗口累计的XZ移动距离（用于防跨帧渐进式加速）
+	float													topSpeedWindowAccumDist_;
+
+	// topSpeed检测：滑动窗口累计的Y轴移动距离
+	float													topSpeedWindowAccumDistY_;
+
+	// topSpeed检测：滑动窗口内已累计的tick数
+	int														topSpeedWindowTickCount_;
 
 	// 自身在space的entities中的位置
 	SPACE_ENTITIES::size_type								spaceEntityIdx_;

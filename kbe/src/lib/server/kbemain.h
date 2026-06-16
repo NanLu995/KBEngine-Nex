@@ -6,7 +6,7 @@
 #include "helper/memory_helper.h"
 
 #include "serverapp.h"
-#include "Python.h"
+#include "pyscript/kbe_python.h"
 #include "common/common.h"
 #include "common/kbekey.h"
 #include "common/stringconv.h"
@@ -25,6 +25,17 @@
 
 namespace KBEngine{
 
+inline std::string& selectedKBEngineConfig();
+
+inline const char* pythonCoreBuildType()
+{
+#ifdef Py_DEBUG
+	return "Debug";
+#else
+	return "Release";
+#endif
+}
+
 inline void START_MSG(const char * name, uint64 appuid)
 {
 	MachineInfos machineInfo;
@@ -32,15 +43,17 @@ inline void START_MSG(const char * name, uint64 appuid)
 	std::string s = (fmt::format("---- {} "
 			"Version: {}. "
 			"ScriptVersion: {}. "
-			"Pythoncore: {}. "
+			"Pythoncore: {}({}). "
 			"Protocol: {}. "
+			"ConfigFile: {}. "
 			"Config: {} {}. "
 			"Built: {} {}. "
 			"AppID: {}. "
 			"UID: {}. "
 			"PID: {} ----\n",
-		name, KBEVersion::versionString(), KBEVersion::scriptVersionString(), PY_VERSION,
+		name, KBEVersion::versionString(), KBEVersion::scriptVersionString(), PY_VERSION, pythonCoreBuildType(),
 		Network::MessageHandlers::getDigestStr(),
+		selectedKBEngineConfig(),
 		KBE_CONFIG, KBE_ARCH, __TIME__, __DATE__,
 		appuid, getUserUID(), getProcessPID()));
 
@@ -63,15 +76,135 @@ inline void START_MSG(const char * name, uint64 appuid)
 
 }
 
-inline void loadConfig()
+inline std::string& selectedKBEngineConfig()
+{
+	static std::string configFile = "server/kbengine.xml";
+	return configFile;
+}
+
+inline bool fetchCommandArgValue(const std::string& cmd, const std::string& key, std::string& value)
+{
+	if(cmd.find(key) != 0)
+		return false;
+
+	value = cmd.substr(key.size());
+	return value.size() > 0;
+}
+
+inline void parseLoadConfigCommandArgs(int argc, char* argv[])
+{
+	if(argc < 2)
+	{
+		return;
+	}
+
+	std::string prop;
+	std::string location;
+
+	for(int argIdx=1; argIdx<argc; ++argIdx)
+	{
+		std::string cmd = argv[argIdx];
+		std::string value;
+
+		if(fetchCommandArgValue(cmd, "--KBE_ROOT=", value))
+		{
+			setenv("KBE_ROOT", value.c_str(), 1);
+			continue;
+		}
+
+		if(fetchCommandArgValue(cmd, "--KBE_RES_PATH=", value))
+		{
+			setenv("KBE_RES_PATH", value.c_str(), 1);
+			continue;
+		}
+
+		if(fetchCommandArgValue(cmd, "--KBE_BIN_PATH=", value))
+		{
+			setenv("KBE_BIN_PATH", value.c_str(), 1);
+			continue;
+		}
+
+		if(fetchCommandArgValue(cmd, "--KBE_VENV_PATH=", value))
+		{
+			setenv("KBE_VENV_PATH", value.c_str(), 1);
+			continue;
+		}
+
+		if(fetchCommandArgValue(cmd, "--prop=", value))
+		{
+			prop = strutil::kbe_trim(value);
+			continue;
+		}
+
+		if(fetchCommandArgValue(cmd, "--location=", value))
+		{
+			location = strutil::kbe_trim(value);
+			continue;
+		}
+	}
+
+	if(location.size() > 0)
+	{
+		selectedKBEngineConfig() = location;
+	}
+	else if(prop.size() > 0)
+	{
+		selectedKBEngineConfig() = "server/kbengine_" + prop + ".xml";
+	}
+	else
+	{
+		selectedKBEngineConfig() = "server/kbengine.xml";
+	}
+}
+
+inline bool checkConfigFileExists(const std::string& fileName)
+{
+	std::string fullpath = Resmgr::getSingleton().matchRes(fileName);
+	return access(fullpath.c_str(), 0) == 0;
+}
+
+inline void printConfigFileError(const std::string& fileName)
+{
+	std::string fullpath = Resmgr::getSingleton().matchRes(fileName);
+	std::string s = fmt::format("loadConfig: config file not found: {} (resolved: {})\n",
+		fileName, fullpath);
+
+	ERROR_MSG(s);
+
+#if KBE_PLATFORM == PLATFORM_WIN32
+	printf("[ERROR]: %s", s.c_str());
+#endif
+}
+
+inline bool loadConfig()
 {
 	Resmgr::getSingleton().initialize();
 
 	// "../../res/server/kbengine_defaults.xml"
-	g_kbeSrvConfig.loadConfig("server/kbengine_defaults.xml");
+	if(!checkConfigFileExists("server/kbengine_defaults.xml"))
+	{
+		printConfigFileError("server/kbengine_defaults.xml");
+		return false;
+	}
 
-	// "../../../assets/res/server/kbengine.xml"
-	g_kbeSrvConfig.loadConfig("server/kbengine.xml");
+	if(!g_kbeSrvConfig.loadConfig("server/kbengine_defaults.xml"))
+	{
+		return false;
+	}
+
+	// "../../../assets/res/server/kbengine.xml" or command-line selected config.
+	if(!checkConfigFileExists(selectedKBEngineConfig()))
+	{
+		printConfigFileError(selectedKBEngineConfig());
+		return false;
+	}
+
+	if(!g_kbeSrvConfig.loadConfig(selectedKBEngineConfig()))
+	{
+		return false;
+	}
+
+	return true;
 }
 
 inline void setEvns()
@@ -380,7 +513,9 @@ int main(int argc, char* argv[])																						\
 	KBEngine::exception::installCrashHandler("bootstrap", g_componentID);												\
 	int retcode = -1;																									\
 	THREAD_TRY_EXECUTION;																								\
-	loadConfig();																										\
+	parseLoadConfigCommandArgs(argc, argv);																				\
+	if(!loadConfig())																									\
+		return -1;																										\
 	g_componentID = genUUID64();																						\
 	parseMainCommandArgs(argc, argv);																					\
 	KBEngine::exception::installCrashHandler("bootstrap", g_componentID);												\
@@ -394,7 +529,9 @@ int kbeMain
 kbeMain(int argc, char* argv[]);																						\
 int main(int argc, char* argv[])																						\
 {																														\
-	loadConfig();																										\
+	parseLoadConfigCommandArgs(argc, argv);																				\
+	if(!loadConfig())																									\
+		return -1;																										\
 	g_componentID = genUUID64();																						\
 	parseMainCommandArgs(argc, argv);																					\
 	return kbeMain(argc, argv);																							\

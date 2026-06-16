@@ -146,6 +146,9 @@ bool InitProgressHandler::process()
 		else
 			SCRIPT_ERROR_CHECK();
 
+		Cellapp::getSingleton().dispatchPluginEvent("onInit", false);
+		Cellapp::getSingleton().dispatchPluginEvent("onComponentReady", (g_componentGroupOrder == 1));
+
 		return true;
 	}
 
