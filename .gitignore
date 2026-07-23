@@ -214,3 +214,6 @@ kbengine_demos_assets
 #/kbe/tools/server/webconsole/webconsole/migrations/
 #/kbe/tools/server/webconsole/cluster/migrations/
 #/kbe/tools/server/webconsole/component/migrations/
+
+# Assets
+GoDoMMORPG/
